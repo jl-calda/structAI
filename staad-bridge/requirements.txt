@@ -1,0 +1,8 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.9
+httpx>=0.27
+python-dotenv>=1.0
+# Windows only — comment out the line below when installing on macOS / Linux
+# for mock-mode development.
+pywin32>=306; sys_platform == 'win32'
