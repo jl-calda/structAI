@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 
 import { ColumnCrossSection } from '@/components/columns/ColumnCrossSection'
+import { ColumnRebarEditor } from '@/components/columns/ColumnRebarEditor'
 import { PmDiagram } from '@/components/columns/PmDiagram'
 import { RunColumnDesignButton } from '@/components/columns/RunColumnDesignButton'
 import { Tag } from '@/components/ui/Tag'
@@ -92,28 +93,21 @@ export default async function ColumnDesignPage({
               bar_count={rebar?.bar_count ?? 4}
               tie_dia_mm={rebar?.tie_dia_mm ?? 10}
             />
-            <div className="w-full flex flex-col gap-1.5 text-[11.5px] mono">
-              <Row label="Bars" value={`${rebar?.bar_count ?? 4} × Ø${rebar?.bar_dia_mm ?? 20}`} />
-              <Row label="Ties" value={`Ø${rebar?.tie_dia_mm ?? 10} @ ${rebar?.tie_spacing_mm ?? 200} mm`} />
-              {checks ? (
-                <div
-                  className="rounded px-2 py-1.5"
-                  style={{
-                    background:
-                      checks.rho_min_ok && checks.rho_max_ok
-                        ? 'var(--color-green-l)'
-                        : 'var(--color-red-l)',
-                    color:
-                      checks.rho_min_ok && checks.rho_max_ok
-                        ? 'var(--color-green)'
-                        : 'var(--color-red)',
-                  }}
-                >
-                  ρ = {checks.rho_percent.toFixed(2)}% ·{' '}
-                  {checks.rho_min_ok ? '≥' : '<'} 1%{' '}
-                  {checks.rho_max_ok ? '≤' : '>'} 8%
-                </div>
-              ) : null}
+            <div className="w-full">
+              <ColumnRebarEditor
+                projectId={projectId}
+                columnDesignId={columnId}
+                initial={{
+                  bar_dia_mm: rebar?.bar_dia_mm ?? 20,
+                  bar_count: rebar?.bar_count ?? 4,
+                  tie_dia_mm: rebar?.tie_dia_mm ?? 10,
+                  tie_spacing_mm: rebar?.tie_spacing_mm ?? 200,
+                  tie_spacing_end_mm: rebar?.tie_spacing_end_mm ?? 100,
+                  tie_end_zone_length_mm: rebar?.tie_end_zone_length_mm ?? 500,
+                }}
+                initialInteraction={checks?.interaction_ratio ?? null}
+                initialRho={checks?.rho_percent ?? null}
+              />
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { BeamCrossSection } from '@/components/beams/BeamCrossSection'
 import { BeamElevation } from '@/components/beams/BeamElevation'
+import { BeamRebarEditor } from '@/components/beams/BeamRebarEditor'
 import { MomentEnvelope } from '@/components/beams/MomentEnvelope'
 import { RunDesignButton } from '@/components/beams/RunDesignButton'
 import { ShearEnvelope } from '@/components/beams/ShearEnvelope'
@@ -132,55 +133,21 @@ export default async function BeamDesignPage({
               Rebar
             </span>
           </div>
-          <div className="cb flex flex-col gap-2">
-            <RebarBox tone="amber" title="PERIMETER" locked>
-              <Row label="Count" value="4 (locked)" />
-              <Row label="Dia" value={`Ø${rebar?.perimeter_dia_mm ?? '—'} mm`} />
-            </RebarBox>
-
-            <RebarBox title="ADDITIONAL TENSION">
-              {tensionLayers.length === 0 ? (
-                <Row label="—" value="none" />
-              ) : (
-                tensionLayers.map((l) => (
-                  <Row
-                    key={l.layer}
-                    label={`L${l.layer}${l.bent_down ? ' (bent)' : ''}`}
-                    value={`${l.count} × Ø${l.dia_mm}`}
-                  />
-                ))
-              )}
-            </RebarBox>
-
-            <RebarBox tone="teal" title="COMPRESSION As'">
-              {rebar && rebar.compression_count > 0 ? (
-                <Row
-                  label="Count × Dia"
-                  value={`${rebar.compression_count} × Ø${rebar.compression_dia_mm}`}
-                />
-              ) : (
-                <Row label="—" value="none" />
-              )}
-            </RebarBox>
-
-            {checks ? (
-              <div
-                className="rounded px-2 py-1.5 text-[11.5px] mono"
-                style={{
-                  background:
-                    checks.as_provided_mm2 >= checks.as_required_mm2
-                      ? 'var(--color-green-l)'
-                      : 'var(--color-red-l)',
-                  color:
-                    checks.as_provided_mm2 >= checks.as_required_mm2
-                      ? 'var(--color-green)'
-                      : 'var(--color-red)',
-                }}
-              >
-                As = {checks.as_provided_mm2.toFixed(0)} ≥{' '}
-                {checks.as_required_mm2.toFixed(0)} mm² {checks.as_provided_mm2 >= checks.as_required_mm2 ? '✓' : '✗'}
-              </div>
-            ) : null}
+          <div className="cb">
+            <BeamRebarEditor
+              projectId={projectId}
+              beamDesignId={beamId}
+              initial={{
+                perimeter_dia_mm: rebar?.perimeter_dia_mm ?? 20,
+                tension_layers: tensionLayers,
+                compression_dia_mm: rebar?.compression_dia_mm ?? 20,
+                compression_count: rebar?.compression_count ?? 0,
+                stirrup_dia_mm: rebar?.stirrup_dia_mm ?? 10,
+                stirrup_legs: rebar?.stirrup_legs ?? 2,
+              }}
+              initialProvidedAs={checks?.as_provided_mm2 ?? 0}
+              initialRequiredAs={checks?.as_required_mm2 ?? 0}
+            />
           </div>
         </div>
 
@@ -446,38 +413,6 @@ function ResultBar({
       <span>φMn+ {checks.phi_mn_pos_knm.toFixed(1)} ≥ Mu+ {checks.mu_pos_knm.toFixed(1)} kN·m</span>
       <span>·</span>
       <span>φVn {checks.phi_vn_kn.toFixed(1)} ≥ Vu {checks.vu_max_kn.toFixed(1)} kN</span>
-    </div>
-  )
-}
-
-function RebarBox({
-  title,
-  children,
-  tone,
-  locked,
-}: {
-  title: string
-  children: React.ReactNode
-  tone?: 'amber' | 'teal'
-  locked?: boolean
-}) {
-  const bg =
-    tone === 'amber' ? 'var(--color-amber-l)' :
-    tone === 'teal' ? 'var(--color-teal-l)' :
-    'transparent'
-  return (
-    <div
-      className="rounded border px-2 py-1.5"
-      style={{ background: bg, borderColor: 'var(--color-border)' }}
-    >
-      <div className="flex items-center justify-between text-[9.5px] uppercase tracking-wider"
-           style={{ color: 'var(--color-text2)' }}>
-        <span>{title}</span>
-        {locked ? <span>🔒</span> : null}
-      </div>
-      <div className="mt-1 flex flex-col gap-0.5 text-[11.5px] mono">
-        {children}
-      </div>
     </div>
   )
 }
