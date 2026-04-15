@@ -24,6 +24,20 @@ function optional(name: string): string | undefined {
   return value && value.length > 0 ? value : undefined
 }
 
+/**
+ * Non-throwing predicate — true iff the three Supabase env vars are
+ * present. Useful for rendering a setup banner on deployments where
+ * the project hasn't been wired to Supabase yet (previews, CI, etc.)
+ * without crashing the request.
+ */
+export function isSupabaseConfigured(): boolean {
+  return (
+    !!optional('NEXT_PUBLIC_SUPABASE_URL') &&
+    !!optional('NEXT_PUBLIC_SUPABASE_ANON_KEY') &&
+    !!optional('SUPABASE_SERVICE_ROLE_KEY')
+  )
+}
+
 export const env = {
   get SUPABASE_URL() {
     return required('NEXT_PUBLIC_SUPABASE_URL')
