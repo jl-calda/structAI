@@ -10,14 +10,21 @@
 import Link from 'next/link'
 
 import { NewProjectCard } from '@/components/projects/NewProjectCard'
+import { SetupRequired } from '@/components/setup/SetupRequired'
 import { Tag } from '@/components/ui/Tag'
 import { listProjects } from '@/lib/data/projects'
+import { isSupabaseConfigured } from '@/lib/env'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
-  const projects = await listProjects()
   const today = new Date()
+
+  if (!isSupabaseConfigured()) {
+    return <SetupRequired />
+  }
+
+  const projects = await listProjects()
 
   return (
     <div className="flex flex-col gap-4">
