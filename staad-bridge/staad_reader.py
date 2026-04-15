@@ -328,7 +328,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 )
                 # forces layout per STAAD OpenSTAAD docs:
                 # [0]=Fx, [1]=Fy, [2]=Fz, [3]=Mx, [4]=My, [5]=Mz
-                fx, fy, _fz, _mx, _my, mz = forces[0:6]
+                fx, fy, fz, _mx, my, mz = forces[0:6]
                 diagram_points.append(SyncDiagramPoint(
                     member_id=mid,
                     combo_number=combo,
@@ -337,12 +337,15 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                     mz_knm=float(mz),
                     vy_kn=float(fy),
                     n_kn=float(fx),
+                    my_knm=float(my),
+                    vz_kn=float(fz),
                 ))
                 envelope_map[mid].update(
                     combo=combo,
                     mz_knm=float(mz),
                     vy_kn=float(fy),
                     n_kn=float(fx),
+                    my_knm=float(my),
                 )
 
     envelope = [acc.to_row(mid) for mid, acc in envelope_map.items()]
@@ -552,8 +555,21 @@ class _EnvelopeAcc:
         self.vu_combo: Optional[int] = None
         self.nu_t = 0.0
         self.nu_c = 0.0
+        # Minor-axis (My) peaks for the biaxial column path.
+        self.mpos_minor = 0.0
+        self.mpos_combo_minor: Optional[int] = None
+        self.mneg_minor = 0.0
+        self.mneg_combo_minor: Optional[int] = None
 
-    def update(self, *, combo: int, mz_knm: float, vy_kn: float, n_kn: float) -> None:
+    def update(
+        self,
+        *,
+        combo: int,
+        mz_knm: float,
+        vy_kn: float,
+        n_kn: float,
+        my_knm: float = 0.0,
+    ) -> None:
         if mz_knm > self.mpos:
             self.mpos, self.mpos_combo = mz_knm, combo
         neg_mag = -mz_knm if mz_knm < 0 else 0
@@ -567,6 +583,11 @@ class _EnvelopeAcc:
         comp_mag = -n_kn if n_kn < 0 else 0
         if comp_mag > self.nu_c:
             self.nu_c = comp_mag
+        if my_knm > self.mpos_minor:
+            self.mpos_minor, self.mpos_combo_minor = my_knm, combo
+        my_neg_mag = -my_knm if my_knm < 0 else 0
+        if my_neg_mag > self.mneg_minor:
+            self.mneg_minor, self.mneg_combo_minor = my_neg_mag, combo
 
     def to_row(self, mid: int) -> SyncEnvelope:
         return SyncEnvelope(
@@ -579,6 +600,10 @@ class _EnvelopeAcc:
             vu_combo=self.vu_combo,
             nu_tension_max_kn=self.nu_t,
             nu_compression_max_kn=self.nu_c,
+            mpos_max_minor_knm=self.mpos_minor,
+            mpos_combo_minor=self.mpos_combo_minor,
+            mneg_max_minor_knm=self.mneg_minor,
+            mneg_combo_minor=self.mneg_combo_minor,
         )
 
 

@@ -71,6 +71,10 @@ export type SyncDiagramPoint = {
   mz_knm: number
   vy_kn: number
   n_kn: number
+  /** Minor-axis moment; required for biaxial column check. */
+  my_knm?: number
+  /** Minor-axis shear. */
+  vz_kn?: number
 }
 
 export type SyncEnvelope = {
@@ -81,6 +85,11 @@ export type SyncEnvelope = {
   mneg_combo?: number | null
   vu_max_kn: number
   vu_combo?: number | null
+  /** Minor-axis envelope peaks (for biaxial column). */
+  mpos_max_minor_knm?: number
+  mpos_combo_minor?: number | null
+  mneg_max_minor_knm?: number
+  mneg_combo_minor?: number | null
   nu_tension_max_kn?: number
   nu_compression_max_kn?: number
 }

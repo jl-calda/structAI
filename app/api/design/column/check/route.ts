@@ -95,17 +95,19 @@ export async function POST(request: NextRequest) {
   // Demand: try existing column_checks first; fall back to envelope scan.
   let Pu_kN = 0
   let Mu_major_kNm = 0
+  let Mu_minor_kNm = 0
   let Vu_kN = 0
   let governing_combo: number | null = null
 
   const { data: existingChecks } = await supabase
     .from('column_checks')
-    .select('pu_kn, mu_major_knm, vu_kn, governing_combo')
+    .select('pu_kn, mu_major_knm, mu_minor_knm, vu_kn, governing_combo')
     .eq('column_design_id', design.id)
     .maybeSingle()
   if (existingChecks) {
     Pu_kN = existingChecks.pu_kn
     Mu_major_kNm = existingChecks.mu_major_knm
+    Mu_minor_kNm = existingChecks.mu_minor_knm
     Vu_kN = existingChecks.vu_kn
     governing_combo = existingChecks.governing_combo
   } else {
@@ -123,6 +125,8 @@ export async function POST(request: NextRequest) {
         Mu_major_kNm = mMax
         governing_combo = e.mpos_max_knm >= e.mneg_max_knm ? e.mpos_combo : e.mneg_combo
       }
+      const mMinor = Math.max(e.mpos_max_minor_knm, e.mneg_max_minor_knm)
+      if (mMinor > Mu_minor_kNm) Mu_minor_kNm = mMinor
       if (e.vu_max_kn > Vu_kN) Vu_kN = e.vu_max_kn
     }
   }
@@ -153,7 +157,7 @@ export async function POST(request: NextRequest) {
     demand: {
       Pu_kN,
       Mu_major_kNm,
-      Mu_minor_kNm: 0,
+      Mu_minor_kNm,
       Vu_kN,
       governing_combo,
     },

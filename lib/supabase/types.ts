@@ -364,6 +364,8 @@ export type Database = {
           mz_knm: number
           vy_kn: number
           n_kn: number
+          my_knm: number
+          vz_kn: number
         }
         Insert: {
           id?: string
@@ -375,6 +377,8 @@ export type Database = {
           mz_knm: number
           vy_kn: number
           n_kn?: number
+          my_knm?: number
+          vz_kn?: number
         }
         Update: {
           id?: string
@@ -385,6 +389,8 @@ export type Database = {
           x_mm?: number
           mz_knm?: number
           vy_kn?: number
+          my_knm?: number
+          vz_kn?: number
           n_kn?: number
         }
         Relationships: []
@@ -403,6 +409,10 @@ export type Database = {
           vu_combo: number | null
           nu_tension_max_kn: number
           nu_compression_max_kn: number
+          mpos_max_minor_knm: number
+          mpos_combo_minor: number | null
+          mneg_max_minor_knm: number
+          mneg_combo_minor: number | null
           updated_at: string
         }
         Insert: {
@@ -417,6 +427,10 @@ export type Database = {
           vu_combo?: number | null
           nu_tension_max_kn?: number
           nu_compression_max_kn?: number
+          mpos_max_minor_knm?: number
+          mpos_combo_minor?: number | null
+          mneg_max_minor_knm?: number
+          mneg_combo_minor?: number | null
           updated_at?: string
         }
         Update: {
@@ -431,6 +445,10 @@ export type Database = {
           vu_combo?: number | null
           nu_tension_max_kn?: number
           nu_compression_max_kn?: number
+          mpos_max_minor_knm?: number
+          mpos_combo_minor?: number | null
+          mneg_max_minor_knm?: number
+          mneg_combo_minor?: number | null
           updated_at?: string
         }
         Relationships: []
