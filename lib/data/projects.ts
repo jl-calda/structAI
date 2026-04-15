@@ -1,11 +1,13 @@
 /**
- * Project read helpers (server-side).
+ * Project read helpers. Server-only.
  *
  * These are plain async functions today; once real caching is desired they
  * are the natural place to apply Next.js 16's `use cache` directive with a
  * tag like `projects` so invalidation stays in one place
  * (see docs/09-pages.md).
  */
+import 'server-only'
+
 import { createClient } from '@/lib/supabase/server'
 import type { Database } from '@/lib/supabase/types'
 

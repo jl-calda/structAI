@@ -11,7 +11,7 @@
  * are rendered as client buttons handled in Phase 2.
  */
 import type { LatestSync } from '@/lib/data/staad'
-import { shortHash } from '@/lib/data/staad'
+import { shortHash } from '@/lib/format'
 
 type Tone = 'green' | 'amber' | 'red'
 

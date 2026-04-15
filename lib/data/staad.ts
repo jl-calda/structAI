@@ -1,6 +1,9 @@
 /**
- * STAAD-side read helpers (Object 1).
+ * STAAD-side read helpers (Object 1). Server-only.
+ * Pure display helpers live in `lib/format.ts`.
  */
+import 'server-only'
+
 import { createClient } from '@/lib/supabase/server'
 import type { Database } from '@/lib/supabase/types'
 
@@ -59,7 +62,3 @@ export async function listNodes(projectId: string): Promise<NodeRow[]> {
   return data ?? []
 }
 
-/** Short hash rendering — first 8 chars, uppercase. */
-export function shortHash(hash: string): string {
-  return hash.slice(0, 8).toUpperCase()
-}
