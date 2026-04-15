@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   StructAI design tokens (docs/07-design-system.md)
+   Font rule: every number, unit value, member ID, hash, engineering quantity
+   uses --mono. Labels and prose use --sans.
+   --------------------------------------------------------------------------- */
+@theme {
+  --color-amber:   #D4820F;
+  --color-amber-l: #FEF3E0;
+  --color-blue:    #1755A0;
+  --color-blue-l:  #E8F0FC;
+  --color-teal:    #157A6A;
+  --color-teal-l:  #E0F2EE;
+  --color-red:     #A02020;
+  --color-red-l:   #FDE8E8;
+  --color-green:   #256830;
+  --color-green-l: #E4F2E6;
+  --color-purple:   #6B3FA0;
+  --color-purple-l: #EDE4F5;
+
+  --color-bg:      #EDEBE5;
+  --color-surface: #FFFFFF;
+  --color-surf2:   #F6F4EF;
+  --color-surf3:   #F0EDE8;
+  --color-border:  #DDD8CE;
+  --color-text:    #1A1816;
+  --color-text2:   #6A6560;
+
+  /* Dark chrome (sidebar + top nav) */
+  --color-chrome-sidebar:  #111318;
+  --color-chrome-topnav:   #0C0E14;
+  --color-chrome-tabs:     #0F1118;
+  --color-chrome-border:   #1E2128;
+  --color-chrome-text:     #EDEBE5;
+  --color-chrome-text2:    #8A8680;
+
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+body {
+  min-height: 100vh;
+}
+
+/* Numbers / values / IDs / hashes — apply by class or element where needed. */
+.mono, code, kbd, samp {
+  font-family: var(--font-mono);
+}
+
+/* ---------------------------------------------------------------------------
+   Reusable primitives from docs/07-design-system.md
+   --------------------------------------------------------------------------- */
+
+/* Tags — 9px bold chips */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 3px;
+  line-height: 1;
+}
+.tag.ta { background: var(--color-amber-l);  color: var(--color-amber); }
+.tag.tb { background: var(--color-blue-l);   color: var(--color-blue); }
+.tag.tg { background: var(--color-green-l);  color: var(--color-green); }
+.tag.tr { background: var(--color-red-l);    color: var(--color-red); }
+.tag.tp { background: var(--color-purple-l); color: var(--color-purple); }
+.tag.tt { background: var(--color-teal-l);   color: var(--color-teal); }
+
+/* Cards */
+.card {
+  background: var(--color-surface);
+  border: 0.5px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ch {
+  background: var(--color-surf2);
+  border-bottom: 0.5px solid var(--color-border);
+  padding: 8px 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cb { padding: 12px 13px; }
+
+/* Tables */
+.t {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+}
+.t thead th {
+  background: var(--color-surf3);
+  border-bottom: 0.5px solid var(--color-border);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-text2);
+  text-align: left;
+  padding: 6px 9px;
+  letter-spacing: 0.04em;
+}
+.t tbody td {
+  padding: 5px 9px;
+  border-bottom: 0.5px solid var(--color-border);
+}
+.t tbody tr:last-child td { border-bottom: none; }
+.t tbody td.num { font-family: var(--font-mono); }
+.t tbody tr.govern td { background: var(--color-amber-l); }
+.t tbody tr.fail   td { background: var(--color-red-l); }
