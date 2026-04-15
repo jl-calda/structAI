@@ -58,6 +58,31 @@ export type LoadTemplateEntry = {
   factors: { load_type: LoadType; factor: number }[]
 }
 
+export type BeamTensionLayer = {
+  layer: number
+  dia_mm: number
+  count: number
+  bent_down: boolean
+  bend_point_left_mm?: number
+  bend_point_right_mm?: number
+}
+
+export type BeamStirrupZone = {
+  zone: 'dense_left' | 'mid' | 'dense_right'
+  start_mm: number
+  end_mm: number
+  spacing_mm: number
+}
+
+export type ElementType = 'beam' | 'column' | 'slab' | 'footing'
+
+export type BarShape =
+  | 'straight'
+  | 'bent_45'
+  | 'bent_90'
+  | 'closed_tie'
+  | 'hooked'
+
 export type Database = {
   __InternalSupabase: { PostgrestVersion: '12' }
   public: {
@@ -472,6 +497,262 @@ export type Database = {
           code_standard?: CodeStandard
           is_system?: boolean
           combinations?: LoadTemplateEntry[]
+        }
+        Relationships: []
+      }
+
+      beam_designs: {
+        Row: {
+          id: string
+          project_id: string
+          label: string
+          member_ids: number[]
+          section_name: string
+          b_mm: number
+          h_mm: number
+          total_span_mm: number
+          fc_mpa: number
+          fy_mpa: number
+          fys_mpa: number
+          clear_cover_mm: number
+          design_status: DesignStatus
+          geometry_changed: boolean
+          last_designed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          label: string
+          member_ids?: number[]
+          section_name: string
+          b_mm: number
+          h_mm: number
+          total_span_mm: number
+          fc_mpa: number
+          fy_mpa: number
+          fys_mpa: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          geometry_changed?: boolean
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          label?: string
+          member_ids?: number[]
+          section_name?: string
+          b_mm?: number
+          h_mm?: number
+          total_span_mm?: number
+          fc_mpa?: number
+          fy_mpa?: number
+          fys_mpa?: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          geometry_changed?: boolean
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+
+      beam_reinforcement: {
+        Row: {
+          id: string
+          beam_design_id: string
+          perimeter_dia_mm: number
+          tension_layers: BeamTensionLayer[]
+          compression_dia_mm: number
+          compression_count: number
+          stirrup_dia_mm: number
+          stirrup_legs: number
+          stirrup_zones: BeamStirrupZone[]
+        }
+        Insert: {
+          id?: string
+          beam_design_id: string
+          perimeter_dia_mm?: number
+          tension_layers?: BeamTensionLayer[]
+          compression_dia_mm?: number
+          compression_count?: number
+          stirrup_dia_mm?: number
+          stirrup_legs?: number
+          stirrup_zones?: BeamStirrupZone[]
+        }
+        Update: {
+          id?: string
+          beam_design_id?: string
+          perimeter_dia_mm?: number
+          tension_layers?: BeamTensionLayer[]
+          compression_dia_mm?: number
+          compression_count?: number
+          stirrup_dia_mm?: number
+          stirrup_legs?: number
+          stirrup_zones?: BeamStirrupZone[]
+        }
+        Relationships: []
+      }
+
+      beam_checks: {
+        Row: {
+          id: string
+          beam_design_id: string
+          mu_pos_knm: number
+          mu_pos_combo: number | null
+          mu_neg_knm: number
+          mu_neg_combo: number | null
+          vu_max_kn: number
+          vu_combo: number | null
+          d_mm: number
+          centroid_bot_mm: number
+          centroid_top_mm: number
+          as_required_mm2: number
+          as_provided_mm2: number
+          phi_mn_pos_knm: number
+          flexure_pos_status: 'pass' | 'fail' | 'pending'
+          phi_mn_neg_knm: number
+          flexure_neg_status: 'pass' | 'fail' | 'pending'
+          is_doubly_reinforced: boolean
+          phi_mn_max_singly_knm: number
+          fsp_mpa: number | null
+          vc_kn: number
+          phi_vn_kn: number
+          shear_status: 'pass' | 'fail' | 'pending'
+          bend_point_left_mm: number
+          bend_point_right_mm: number
+          perimeter_only_phi_mn_knm: number
+          ld_bottom_mm: number | null
+          ld_top_mm: number | null
+          lap_splice_mm: number | null
+          code_standard: CodeStandard
+          checked_at: string
+          overall_status: 'pass' | 'fail' | 'pending'
+        }
+        Insert: {
+          id?: string
+          beam_design_id: string
+          mu_pos_knm?: number
+          mu_pos_combo?: number | null
+          mu_neg_knm?: number
+          mu_neg_combo?: number | null
+          vu_max_kn?: number
+          vu_combo?: number | null
+          d_mm?: number
+          centroid_bot_mm?: number
+          centroid_top_mm?: number
+          as_required_mm2?: number
+          as_provided_mm2?: number
+          phi_mn_pos_knm?: number
+          flexure_pos_status?: 'pass' | 'fail' | 'pending'
+          phi_mn_neg_knm?: number
+          flexure_neg_status?: 'pass' | 'fail' | 'pending'
+          is_doubly_reinforced?: boolean
+          phi_mn_max_singly_knm?: number
+          fsp_mpa?: number | null
+          vc_kn?: number
+          phi_vn_kn?: number
+          shear_status?: 'pass' | 'fail' | 'pending'
+          bend_point_left_mm?: number
+          bend_point_right_mm?: number
+          perimeter_only_phi_mn_knm?: number
+          ld_bottom_mm?: number | null
+          ld_top_mm?: number | null
+          lap_splice_mm?: number | null
+          code_standard: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Update: {
+          id?: string
+          beam_design_id?: string
+          mu_pos_knm?: number
+          mu_pos_combo?: number | null
+          mu_neg_knm?: number
+          mu_neg_combo?: number | null
+          vu_max_kn?: number
+          vu_combo?: number | null
+          d_mm?: number
+          centroid_bot_mm?: number
+          centroid_top_mm?: number
+          as_required_mm2?: number
+          as_provided_mm2?: number
+          phi_mn_pos_knm?: number
+          flexure_pos_status?: 'pass' | 'fail' | 'pending'
+          phi_mn_neg_knm?: number
+          flexure_neg_status?: 'pass' | 'fail' | 'pending'
+          is_doubly_reinforced?: boolean
+          phi_mn_max_singly_knm?: number
+          fsp_mpa?: number | null
+          vc_kn?: number
+          phi_vn_kn?: number
+          shear_status?: 'pass' | 'fail' | 'pending'
+          bend_point_left_mm?: number
+          bend_point_right_mm?: number
+          perimeter_only_phi_mn_knm?: number
+          ld_bottom_mm?: number | null
+          ld_top_mm?: number | null
+          lap_splice_mm?: number | null
+          code_standard?: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Relationships: []
+      }
+
+      material_takeoff_items: {
+        Row: {
+          id: string
+          project_id: string
+          element_type: ElementType
+          element_id: string
+          element_label: string
+          bar_mark: string
+          bar_dia_mm: number
+          bar_shape: BarShape
+          length_mm: number
+          quantity: number
+          total_length_m: number
+          unit_weight_kg_m: number
+          weight_kg: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          element_type: ElementType
+          element_id: string
+          element_label: string
+          bar_mark: string
+          bar_dia_mm: number
+          bar_shape: BarShape
+          length_mm: number
+          quantity: number
+          total_length_m: number
+          unit_weight_kg_m: number
+          weight_kg: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          element_type?: ElementType
+          element_id?: string
+          element_label?: string
+          bar_mark?: string
+          bar_dia_mm?: number
+          bar_shape?: BarShape
+          length_mm?: number
+          quantity?: number
+          total_length_m?: number
+          unit_weight_kg_m?: number
+          weight_kg?: number
+          created_at?: string
         }
         Relationships: []
       }
