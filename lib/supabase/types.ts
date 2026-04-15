@@ -705,6 +705,177 @@ export type Database = {
         Relationships: []
       }
 
+      column_designs: {
+        Row: {
+          id: string
+          project_id: string
+          label: string
+          member_ids: number[]
+          section_name: string
+          b_mm: number
+          h_mm: number
+          height_mm: number
+          fc_mpa: number
+          fy_mpa: number
+          fys_mpa: number
+          clear_cover_mm: number
+          design_status: DesignStatus
+          geometry_changed: boolean
+          last_designed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          label: string
+          member_ids?: number[]
+          section_name: string
+          b_mm: number
+          h_mm: number
+          height_mm: number
+          fc_mpa: number
+          fy_mpa: number
+          fys_mpa: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          geometry_changed?: boolean
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          label?: string
+          member_ids?: number[]
+          section_name?: string
+          b_mm?: number
+          h_mm?: number
+          height_mm?: number
+          fc_mpa?: number
+          fy_mpa?: number
+          fys_mpa?: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          geometry_changed?: boolean
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+
+      column_reinforcement: {
+        Row: {
+          id: string
+          column_design_id: string
+          bar_dia_mm: number
+          bar_count: number
+          tie_dia_mm: number
+          tie_spacing_mm: number
+          tie_spacing_end_mm: number
+          tie_end_zone_length_mm: number
+          is_seismic: boolean
+        }
+        Insert: {
+          id?: string
+          column_design_id: string
+          bar_dia_mm?: number
+          bar_count?: number
+          tie_dia_mm?: number
+          tie_spacing_mm?: number
+          tie_spacing_end_mm?: number
+          tie_end_zone_length_mm?: number
+          is_seismic?: boolean
+        }
+        Update: {
+          id?: string
+          column_design_id?: string
+          bar_dia_mm?: number
+          bar_count?: number
+          tie_dia_mm?: number
+          tie_spacing_mm?: number
+          tie_spacing_end_mm?: number
+          tie_end_zone_length_mm?: number
+          is_seismic?: boolean
+        }
+        Relationships: []
+      }
+
+      column_checks: {
+        Row: {
+          id: string
+          column_design_id: string
+          pu_kn: number
+          mu_major_knm: number
+          mu_minor_knm: number
+          governing_combo: number | null
+          phi_pn_kn: number
+          phi_mn_knm: number
+          interaction_ratio: number
+          axial_status: 'pass' | 'fail' | 'pending'
+          vu_kn: number
+          phi_vn_kn: number
+          shear_status: 'pass' | 'fail' | 'pending'
+          rho_percent: number
+          rho_min_ok: boolean
+          rho_max_ok: boolean
+          klu_r: number
+          slender: boolean
+          code_standard: CodeStandard
+          checked_at: string
+          overall_status: 'pass' | 'fail' | 'pending'
+        }
+        Insert: {
+          id?: string
+          column_design_id: string
+          pu_kn?: number
+          mu_major_knm?: number
+          mu_minor_knm?: number
+          governing_combo?: number | null
+          phi_pn_kn?: number
+          phi_mn_knm?: number
+          interaction_ratio?: number
+          axial_status?: 'pass' | 'fail' | 'pending'
+          vu_kn?: number
+          phi_vn_kn?: number
+          shear_status?: 'pass' | 'fail' | 'pending'
+          rho_percent?: number
+          rho_min_ok?: boolean
+          rho_max_ok?: boolean
+          klu_r?: number
+          slender?: boolean
+          code_standard: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Update: {
+          id?: string
+          column_design_id?: string
+          pu_kn?: number
+          mu_major_knm?: number
+          mu_minor_knm?: number
+          governing_combo?: number | null
+          phi_pn_kn?: number
+          phi_mn_knm?: number
+          interaction_ratio?: number
+          axial_status?: 'pass' | 'fail' | 'pending'
+          vu_kn?: number
+          phi_vn_kn?: number
+          shear_status?: 'pass' | 'fail' | 'pending'
+          rho_percent?: number
+          rho_min_ok?: boolean
+          rho_max_ok?: boolean
+          klu_r?: number
+          slender?: boolean
+          code_standard?: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Relationships: []
+      }
+
       material_takeoff_items: {
         Row: {
           id: string
