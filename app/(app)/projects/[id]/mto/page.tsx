@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { MtoExportBar } from '@/components/mto/MtoExportBar'
 import { Tag } from '@/components/ui/Tag'
 import { groupByDia, listMto, summariseMto } from '@/lib/data/mto'
 import { getProject } from '@/lib/data/projects'
@@ -61,10 +62,16 @@ export default async function MtoPage({
                 style={{ color: 'var(--color-text2)' }}>
             Rebar schedule
           </span>
-          <span className="ml-auto mono text-[11px]"
+          <span className="ml-3 mono text-[11px]"
                 style={{ color: 'var(--color-text2)' }}>
             {rows.length} line{rows.length === 1 ? '' : 's'}
           </span>
+          <div className="ml-auto">
+            <MtoExportBar
+              rows={rows}
+              filename={`${project.name.replace(/\s+/g, '_')}-mto.csv`}
+            />
+          </div>
         </div>
 
         {rows.length === 0 ? (
