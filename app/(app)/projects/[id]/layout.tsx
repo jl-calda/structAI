@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { AssistantPanel } from '@/components/ai/AssistantPanel'
 import { Sidebar } from '@/components/shell/Sidebar'
 import { TopNav } from '@/components/shell/TopNav'
 import { getProject } from '@/lib/data/projects'
@@ -40,6 +41,7 @@ export default async function ProjectLayout({
           {children}
         </main>
       </div>
+      <AssistantPanel projectId={project.id} />
     </>
   )
 }
