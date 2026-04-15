@@ -25,7 +25,19 @@ const geom = {
 }
 const mat = { fc_mpa: 28, fy_mpa: 420, fys_mpa: 420 }
 
-/** Build a diagram whose M(x) peaks at `xPeak_mm` with magnitude `Mpeak_kNm`. */
+/**
+ * Build a continuous-beam-style diagram for the regression test.
+ *
+ * Hogging at both supports (−0.6·Mpeak) crossing through zero and
+ * peaking at xPeak_mm with Mpeak_kNm. This is the shape that makes
+ * per-beam bend points actually differ: each beam crosses the
+ * perimeter-only capacity threshold at a different x depending on
+ * where its peak sits.
+ *
+ * A simply-supported diagram (M = 0 at supports) would give
+ * bend_left = 0 and bend_right = span for every beam and the
+ * regression test would be trivially satisfied for the wrong reason.
+ */
 function triangleDiagram(
   xPeak_mm: number,
   Mpeak_kNm: number,
@@ -33,14 +45,21 @@ function triangleDiagram(
   combo: number,
 ) {
   const samples = []
+  const M_end = -0.6 * Mpeak_kNm
   for (let i = 0; i <= 10; i++) {
     const x = (i / 10) * span
-    // Triangle that peaks at xPeak.
-    const frac = x <= xPeak_mm ? x / xPeak_mm : (span - x) / (span - xPeak_mm)
+    let Mz: number
+    if (x <= xPeak_mm) {
+      const t = x / xPeak_mm
+      Mz = M_end + (Mpeak_kNm - M_end) * t
+    } else {
+      const t = (x - xPeak_mm) / (span - xPeak_mm)
+      Mz = Mpeak_kNm + (M_end - Mpeak_kNm) * t
+    }
     samples.push({
       x_mm: x,
-      Mz_kNm: Mpeak_kNm * frac,
-      Vy_kN: 200 - 200 * frac,
+      Mz_kNm: Mz,
+      Vy_kN: 220 - (440 * x) / span,
       combo_number: combo,
     })
   }
