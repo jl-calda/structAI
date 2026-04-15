@@ -876,6 +876,296 @@ export type Database = {
         Relationships: []
       }
 
+      slab_designs: {
+        Row: {
+          id: string
+          project_id: string
+          label: string
+          slab_type: 'one_way' | 'two_way' | 'flat_plate' | 'flat_slab'
+          span_x_mm: number
+          span_y_mm: number
+          thickness_mm: number
+          dl_self_kpa: number
+          sdl_kpa: number
+          ll_kpa: number
+          fc_mpa: number
+          fy_mpa: number
+          clear_cover_mm: number
+          design_status: DesignStatus
+          last_designed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          label: string
+          slab_type?: 'one_way' | 'two_way' | 'flat_plate' | 'flat_slab'
+          span_x_mm: number
+          span_y_mm: number
+          thickness_mm: number
+          dl_self_kpa?: number
+          sdl_kpa?: number
+          ll_kpa?: number
+          fc_mpa: number
+          fy_mpa: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          label?: string
+          slab_type?: 'one_way' | 'two_way' | 'flat_plate' | 'flat_slab'
+          span_x_mm?: number
+          span_y_mm?: number
+          thickness_mm?: number
+          dl_self_kpa?: number
+          sdl_kpa?: number
+          ll_kpa?: number
+          fc_mpa?: number
+          fy_mpa?: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+
+      slab_reinforcement: {
+        Row: {
+          id: string
+          slab_design_id: string
+          bar_dia_short_mm: number
+          spacing_short_mm: number
+          bar_dia_long_mm: number
+          spacing_long_mm: number
+          top_bar_dia_mm: number
+          top_bar_spacing_mm: number
+          top_bar_length_mm: number
+          temp_bar_dia_mm: number
+          temp_bar_spacing_mm: number
+        }
+        Insert: {
+          id?: string
+          slab_design_id: string
+          bar_dia_short_mm?: number
+          spacing_short_mm?: number
+          bar_dia_long_mm?: number
+          spacing_long_mm?: number
+          top_bar_dia_mm?: number
+          top_bar_spacing_mm?: number
+          top_bar_length_mm?: number
+          temp_bar_dia_mm?: number
+          temp_bar_spacing_mm?: number
+        }
+        Update: {
+          id?: string
+          slab_design_id?: string
+          bar_dia_short_mm?: number
+          spacing_short_mm?: number
+          bar_dia_long_mm?: number
+          spacing_long_mm?: number
+          top_bar_dia_mm?: number
+          top_bar_spacing_mm?: number
+          top_bar_length_mm?: number
+          temp_bar_dia_mm?: number
+          temp_bar_spacing_mm?: number
+        }
+        Relationships: []
+      }
+
+      slab_checks: {
+        Row: {
+          id: string
+          slab_design_id: string
+          mu_x_knm_per_m: number
+          phi_mn_x_knm_per_m: number
+          flexure_x_status: 'pass' | 'fail' | 'pending'
+          mu_y_knm_per_m: number
+          phi_mn_y_knm_per_m: number
+          flexure_y_status: 'pass' | 'fail' | 'pending'
+          vu_kn_per_m: number
+          phi_vn_kn_per_m: number
+          shear_status: 'pass' | 'fail' | 'pending'
+          deflection_ok: boolean
+          code_standard: CodeStandard
+          checked_at: string
+          overall_status: 'pass' | 'fail' | 'pending'
+        }
+        Insert: {
+          id?: string
+          slab_design_id: string
+          mu_x_knm_per_m?: number
+          phi_mn_x_knm_per_m?: number
+          flexure_x_status?: 'pass' | 'fail' | 'pending'
+          mu_y_knm_per_m?: number
+          phi_mn_y_knm_per_m?: number
+          flexure_y_status?: 'pass' | 'fail' | 'pending'
+          vu_kn_per_m?: number
+          phi_vn_kn_per_m?: number
+          shear_status?: 'pass' | 'fail' | 'pending'
+          deflection_ok?: boolean
+          code_standard: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Update: {
+          id?: string
+          slab_design_id?: string
+          mu_x_knm_per_m?: number
+          phi_mn_x_knm_per_m?: number
+          flexure_x_status?: 'pass' | 'fail' | 'pending'
+          mu_y_knm_per_m?: number
+          phi_mn_y_knm_per_m?: number
+          flexure_y_status?: 'pass' | 'fail' | 'pending'
+          vu_kn_per_m?: number
+          phi_vn_kn_per_m?: number
+          shear_status?: 'pass' | 'fail' | 'pending'
+          deflection_ok?: boolean
+          code_standard?: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Relationships: []
+      }
+
+      footing_designs: {
+        Row: {
+          id: string
+          project_id: string
+          label: string
+          footing_type: 'isolated' | 'combined' | 'strip'
+          node_id: number | null
+          column_design_id: string | null
+          length_x_mm: number
+          width_y_mm: number
+          depth_mm: number
+          bearing_capacity_kpa: number
+          soil_depth_mm: number
+          fc_mpa: number
+          fy_mpa: number
+          clear_cover_mm: number
+          design_status: DesignStatus
+          last_designed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          label: string
+          footing_type?: 'isolated' | 'combined' | 'strip'
+          node_id?: number | null
+          column_design_id?: string | null
+          length_x_mm: number
+          width_y_mm: number
+          depth_mm: number
+          bearing_capacity_kpa: number
+          soil_depth_mm?: number
+          fc_mpa: number
+          fy_mpa: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          label?: string
+          footing_type?: 'isolated' | 'combined' | 'strip'
+          node_id?: number | null
+          column_design_id?: string | null
+          length_x_mm?: number
+          width_y_mm?: number
+          depth_mm?: number
+          bearing_capacity_kpa?: number
+          soil_depth_mm?: number
+          fc_mpa?: number
+          fy_mpa?: number
+          clear_cover_mm?: number
+          design_status?: DesignStatus
+          last_designed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+
+      footing_checks: {
+        Row: {
+          id: string
+          footing_design_id: string
+          pu_kn: number
+          mu_knm: number
+          governing_combo: number | null
+          q_net_kpa: number
+          bearing_status: 'pass' | 'fail' | 'pending'
+          phi_vn_oneway_kn: number
+          shear_oneway_status: 'pass' | 'fail' | 'pending'
+          phi_vn_twoway_kn: number
+          shear_twoway_status: 'pass' | 'fail' | 'pending'
+          mu_face_knm: number
+          phi_mn_knm: number
+          flexure_status: 'pass' | 'fail' | 'pending'
+          phi_bn_kn: number
+          bearing_col_status: 'pass' | 'fail' | 'pending'
+          code_standard: CodeStandard
+          checked_at: string
+          overall_status: 'pass' | 'fail' | 'pending'
+        }
+        Insert: {
+          id?: string
+          footing_design_id: string
+          pu_kn?: number
+          mu_knm?: number
+          governing_combo?: number | null
+          q_net_kpa?: number
+          bearing_status?: 'pass' | 'fail' | 'pending'
+          phi_vn_oneway_kn?: number
+          shear_oneway_status?: 'pass' | 'fail' | 'pending'
+          phi_vn_twoway_kn?: number
+          shear_twoway_status?: 'pass' | 'fail' | 'pending'
+          mu_face_knm?: number
+          phi_mn_knm?: number
+          flexure_status?: 'pass' | 'fail' | 'pending'
+          phi_bn_kn?: number
+          bearing_col_status?: 'pass' | 'fail' | 'pending'
+          code_standard: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Update: {
+          id?: string
+          footing_design_id?: string
+          pu_kn?: number
+          mu_knm?: number
+          governing_combo?: number | null
+          q_net_kpa?: number
+          bearing_status?: 'pass' | 'fail' | 'pending'
+          phi_vn_oneway_kn?: number
+          shear_oneway_status?: 'pass' | 'fail' | 'pending'
+          phi_vn_twoway_kn?: number
+          shear_twoway_status?: 'pass' | 'fail' | 'pending'
+          mu_face_knm?: number
+          phi_mn_knm?: number
+          flexure_status?: 'pass' | 'fail' | 'pending'
+          phi_bn_kn?: number
+          bearing_col_status?: 'pass' | 'fail' | 'pending'
+          code_standard?: CodeStandard
+          checked_at?: string
+          overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Relationships: []
+      }
+
       material_takeoff_items: {
         Row: {
           id: string
