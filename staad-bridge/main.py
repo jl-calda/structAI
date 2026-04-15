@@ -22,7 +22,12 @@ from fastapi import FastAPI, HTTPException
 
 from config import Config, load_config
 from payload import PushCombinationsBody, ResyncBody
-from staad_reader import StaadError, file_sha256, read_model
+from staad_reader import (
+    StaadError,
+    file_sha256,
+    read_model,
+    resolve_active_staad_file,
+)
 from sync_client import post_sync
 
 logger = logging.getLogger("staad-bridge")
@@ -34,17 +39,33 @@ class BridgeState:
         self.cfg = cfg
         self.last_hash: Optional[str] = None
         self.last_error: Optional[str] = None
+        # Path actually used on the last poll. When STAAD_FILE_PATH is
+        # blank this is resolved from the running STAAD instance so the
+        # UI can show the right file name even in "active doc" mode.
+        self.resolved_file_path: Optional[str] = None
 
     def current_hash(self) -> Optional[str]:
         if self.cfg.mock_mode:
             # Mock mode: hash is computed from the payload itself; we
             # poll once at startup and never auto-re-sync.
             return self.last_hash
-        if self.cfg.staad_file_path is None:
+
+        # Pick source: explicit path wins; otherwise ask the running
+        # STAAD instance which .std is currently open.
+        source_path = self.cfg.staad_file_path
+        if source_path is None:
+            try:
+                source_path = resolve_active_staad_file()
+            except StaadError as e:
+                self.last_error = str(e)
+                return None
+
+        if not source_path.exists():
+            self.last_error = f"file does not exist: {source_path}"
             return None
-        if not self.cfg.staad_file_path.exists():
-            return None
-        return file_sha256(self.cfg.staad_file_path)
+
+        self.resolved_file_path = str(source_path)
+        return file_sha256(source_path)
 
 
 STATE: Optional[BridgeState] = None
@@ -71,11 +92,25 @@ async def _sync_if_changed(state: BridgeState) -> None:
 
     current = state.current_hash()
     if current is None and not cfg.mock_mode:
+        # current_hash() has already set state.last_error with the reason.
+        logger.warning("poll skipped: %s", state.last_error or "unknown")
         return
     if current == state.last_hash:
         return
 
-    payload = read_model(cfg.project_id, cfg.staad_file_path, cfg.mock_mode)
+    # Prefer the path resolved during hashing (handles the blank-path case
+    # where we ask STAAD for the active doc).
+    source_path = (
+        cfg.staad_file_path
+        if cfg.staad_file_path is not None
+        else (
+            __import__("pathlib").Path(state.resolved_file_path)
+            if state.resolved_file_path
+            else None
+        )
+    )
+
+    payload = read_model(cfg.project_id, source_path, cfg.mock_mode)
     result = post_sync(cfg.app_url, cfg.bridge_secret, payload)
     if result.ok:
         state.last_hash = payload.file_hash
@@ -123,6 +158,10 @@ def status():
         "ok": True,
         "project_id": s.cfg.project_id,
         "mock_mode": s.cfg.mock_mode,
+        "configured_file_path": (
+            str(s.cfg.staad_file_path) if s.cfg.staad_file_path else None
+        ),
+        "resolved_file_path": s.resolved_file_path,
         "last_hash": s.last_hash,
         "last_error": s.last_error,
     }

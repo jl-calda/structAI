@@ -53,31 +53,167 @@ class StaadError(RuntimeError):
     pass
 
 
-def _open_staad(file_path: Optional[Path]):
-    """Connect to a running STAAD instance (or open a file)."""
+# STAAD Pro's COM ProgID has changed between versions. We try a few known
+# ones in order. When a user reports "Invalid class string" paste the error
+# in and add the new value here.
+_CANDIDATE_PROGIDS = (
+    "OpenSTAAD.Application",
+    "StaadPro.OpenSTAAD",
+    "STAADOpenUI.BOpenSTAAD",
+)
+
+# Methods a running STAAD instance might expose for "what's the current
+# input file path". Tried in order; first non-empty wins.
+_FILENAME_METHODS = ("GetSTAADFile", "GetFileName", "GetInputFile")
+_FILENAME_ATTRS = ("FileName", "Name", "InputFile")
+
+
+def _connect_to_staad():
+    """Attach to a running STAAD instance first; fall back to Dispatch.
+
+    GetActiveObject reuses the STAAD the user already has open (which is
+    what we want — we're reading their model, not launching a fresh one).
+    Dispatch would silently start a second instance on machines where the
+    running STAAD doesn't register itself in the ROT.
+
+    Returns `(staad_com_object, progid_used)`.
+    """
     try:
+        import pythoncom  # type: ignore
         import win32com.client  # type: ignore
     except ImportError as e:
         raise StaadError(
-            "win32com is unavailable. On non-Windows hosts use MOCK_MODE=1."
+            "win32com/pythoncom are unavailable. On non-Windows hosts use MOCK_MODE=1."
         ) from e
 
-    staad = win32com.client.Dispatch("StaadPro.OpenSTAAD")
+    # COM has to be initialised on the thread that makes the call. uvicorn
+    # runs the poll_loop on an asyncio worker which isn't pre-initialised,
+    # so do it here. Safe to call repeatedly.
+    pythoncom.CoInitialize()
+
+    last_err: Optional[Exception] = None
+    # 1. Attach to a running instance.
+    for progid in _CANDIDATE_PROGIDS:
+        try:
+            return win32com.client.GetActiveObject(progid), progid
+        except Exception as e:
+            last_err = e
+    # 2. Fall back to Dispatch — may launch STAAD if COM is registered.
+    for progid in _CANDIDATE_PROGIDS:
+        try:
+            return win32com.client.Dispatch(progid), progid
+        except Exception as e:
+            last_err = e
+
+    raise StaadError(
+        "Could not connect to STAAD via COM. Tried ProgIDs: "
+        + ", ".join(_CANDIDATE_PROGIDS)
+        + f". Last error: {last_err}"
+    )
+
+
+def resolve_active_staad_file() -> Path:
+    """Ask the running STAAD instance which .std file is currently open."""
+    staad, progid = _connect_to_staad()
+    for method in _FILENAME_METHODS:
+        try:
+            value = getattr(staad, method)()
+            if value:
+                return Path(str(value))
+        except Exception:
+            continue
+    for attr in _FILENAME_ATTRS:
+        try:
+            value = getattr(staad, attr)
+            if value:
+                return Path(str(value))
+        except Exception:
+            continue
+    raise StaadError(
+        f"Connected to STAAD via {progid} but could not determine the "
+        "current file. Set STAAD_FILE_PATH in .env to bypass this."
+    )
+
+
+def _open_staad(file_path: Optional[Path]):
+    """Return a STAAD COM object ready to read. When `file_path` is given
+    and differs from the currently-open model we open it; otherwise we
+    reuse the already-loaded model.
+    """
+    staad, _progid = _connect_to_staad()
     if file_path is not None:
-        staad.OpenSTAADFile(str(file_path))
+        try:
+            # Only call OpenSTAADFile if the file isn't already loaded —
+            # re-opening forces STAAD to prompt about unsaved changes.
+            current = None
+            for method in _FILENAME_METHODS:
+                try:
+                    current = getattr(staad, method)()
+                    if current:
+                        break
+                except Exception:
+                    continue
+            if not current or str(current).lower() != str(file_path).lower():
+                staad.OpenSTAADFile(str(file_path))
+        except Exception as e:
+            raise StaadError(f"OpenSTAADFile({file_path}): {e}") from e
     return staad
 
 
+def _com_int(obj, name: str) -> int:
+    """Return an integer from a COM member that might be a method OR a
+    property depending on STAAD version.
+
+    V20/V21: `Geometry.GetNodeCount()`  (method)
+    V22 CONNECT Edition: `Geometry.GetNodeCount`  (property) — seen in the
+    wild; some V22 builds still work as a method. Handling both means the
+    reader survives across versions without per-version branching.
+    """
+    attr = getattr(obj, name)
+    # Try invoking as a method first; fall back to treating it as a value.
+    try:
+        result = attr()
+    except TypeError:
+        result = attr
+    except Exception as e:
+        raise StaadError(f"{name}: {e}") from e
+    try:
+        return int(result)
+    except (TypeError, ValueError) as e:
+        raise StaadError(f"{name} returned non-integer ({result!r}): {e}") from e
+
+
 def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
+    import logging
+    log = logging.getLogger("staad-bridge")
+
     staad = _open_staad(file_path)
 
-    geometry = staad.Geometry
-    property_ = staad.Property
-    load = staad.Load
-    output = staad.Output
+    try:
+        geometry = staad.Geometry
+        property_ = staad.Property
+        load = staad.Load
+        output = staad.Output
+    except Exception as e:
+        raise StaadError(
+            f"Could not access Geometry/Property/Load/Output on the STAAD COM "
+            f"object. Underlying error: {e}. If you're on STAAD CONNECT V22, "
+            f"check that a model is currently open in STAAD."
+        ) from e
 
     # Nodes
-    n_nodes = geometry.GetNodeCount()
+    try:
+        n_nodes = _com_int(geometry, "GetNodeCount")
+    except StaadError:
+        raise
+    except Exception as e:
+        raise StaadError(
+            f"Geometry.GetNodeCount failed: {e}. "
+            f"Likely a STAAD COM-version mismatch — open an issue with "
+            f"the STAAD version (Help → About) and the full traceback."
+        ) from e
+    log.info("staad read: %d nodes", n_nodes)
+
     nodes: List[SyncNode] = []
     for i in range(1, n_nodes + 1):
         x = y = z = 0.0
@@ -94,7 +230,8 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         )
 
     # Members
-    n_members = geometry.GetMemberCount()
+    n_members = _com_int(geometry, "GetMemberCount")
+    log.info("staad read: %d members", n_members)
     members: List[SyncMember] = []
     for i in range(1, n_members + 1):
         start = end = 0
@@ -141,7 +278,8 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     ]
 
     # Load cases
-    n_cases = load.GetPrimaryLoadCaseCount()
+    n_cases = _com_int(load, "GetPrimaryLoadCaseCount")
+    log.info("staad read: %d primary load cases", n_cases)
     load_cases: List[SyncLoadCase] = []
     for i in range(1, n_cases + 1):
         num = load.GetPrimaryLoadCaseNumber(i)
@@ -155,7 +293,8 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         )
 
     # Combinations
-    n_combos = load.GetLoadCombinationCaseCount()
+    n_combos = _com_int(load, "GetLoadCombinationCaseCount")
+    log.info("staad read: %d combinations", n_combos)
     combos: List[SyncCombination] = []
     combo_numbers: List[int] = []
     for i in range(1, n_combos + 1):
@@ -381,12 +520,21 @@ def _read_mock_model(project_id: str) -> SyncPayload:
 # ---------------------------------------------------------------------------
 
 def read_model(project_id: str, file_path: Optional[Path], mock: bool) -> SyncPayload:
+    """Read the STAAD model → SyncPayload.
+
+    Priority:
+      1. mock = True            → synthetic 3-storey frame.
+      2. file_path given        → open it via COM (no-op if already loaded),
+                                  then read.
+      3. file_path is None      → attach to the running STAAD instance and
+                                  read whatever it currently has open.
+    """
     if mock:
         return _read_mock_model(project_id)
     if file_path is None:
-        raise StaadError(
-            "STAAD_FILE_PATH is not set and MOCK_MODE is off; nothing to read."
-        )
+        # Resolve the active doc's path so we can still hash it. The
+        # _read_real_model call itself will reuse the same COM connection.
+        file_path = resolve_active_staad_file()
     return _read_real_model(project_id, file_path)
 
 
