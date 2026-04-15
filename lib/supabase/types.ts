@@ -1217,6 +1217,55 @@ export type Database = {
         }
         Relationships: []
       }
+
+      design_reports: {
+        Row: {
+          id: string
+          project_id: string
+          title: string
+          engineer_of_record: string | null
+          scope: 'full' | 'beams' | 'columns' | 'slabs' | 'footings' | 'mto'
+          generated_at: string
+          staad_file_name: string | null
+          staad_file_hash: string | null
+          synced_at: string | null
+          is_in_sync: boolean
+          storage_path: string | null
+          storage_url: string | null
+          page_count: number | null
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          title?: string
+          engineer_of_record?: string | null
+          scope?: 'full' | 'beams' | 'columns' | 'slabs' | 'footings' | 'mto'
+          generated_at?: string
+          staad_file_name?: string | null
+          staad_file_hash?: string | null
+          synced_at?: string | null
+          is_in_sync?: boolean
+          storage_path?: string | null
+          storage_url?: string | null
+          page_count?: number | null
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          title?: string
+          engineer_of_record?: string | null
+          scope?: 'full' | 'beams' | 'columns' | 'slabs' | 'footings' | 'mto'
+          generated_at?: string
+          staad_file_name?: string | null
+          staad_file_hash?: string | null
+          synced_at?: string | null
+          is_in_sync?: boolean
+          storage_path?: string | null
+          storage_url?: string | null
+          page_count?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: { [_ in never]: never }
     Functions: { [_ in never]: never }
