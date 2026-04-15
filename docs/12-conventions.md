@@ -37,19 +37,18 @@ BRIDGE_SECRET=                # included in X-Bridge-Secret header by Python bri
 ```
 No Google OAuth vars. No NEXTAUTH_SECRET. No session vars.
 
-## `middleware.ts` (the only middleware)
-Next.js 16.2 introduced `proxy.ts` as the rename for `middleware.ts`.
-That rename works locally but Vercel's current deployment pipeline does
-not always register a `proxy.ts` file as edge middleware — the file
-exists, no matcher engages, and every path 404s. Until Vercel ships
-full `proxy.ts` support we stay on `middleware.ts` with
-`export function middleware`, which is the universally recognised form.
+## `proxy.ts` (the only edge middleware)
+Next.js 16.2 renamed `middleware.ts` → `proxy.ts`. On Vercel, using
+`middleware.ts` produces an edge bundle that references `__dirname`,
+which Edge Runtime does not provide, resulting in
+`MIDDLEWARE_INVOCATION_FAILED` on every matched request. The new
+`proxy.ts` form emits clean edge output and is what we ship.
 ```typescript
-// middleware.ts — only blocks bridge endpoints from non-localhost.
+// proxy.ts — only blocks bridge endpoints from non-localhost.
 // Note: NextRequest.ip was removed in Next.js 15+. Derive the caller IP from
 // headers only. On a plain local dev server with no proxy in front, forwarded
 // headers are absent — that path represents a same-host caller and is allowed.
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/bridge')) {
     const forwarded = request.headers.get('x-forwarded-for')
     const ip = forwarded?.split(',')[0].trim() ?? request.headers.get('x-real-ip') ?? ''
