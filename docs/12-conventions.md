@@ -40,10 +40,16 @@ No Google OAuth vars. No NEXTAUTH_SECRET. No session vars.
 ## `proxy.ts` (the only middleware)
 ```typescript
 // proxy.ts — only blocks bridge endpoints from non-localhost
+// Note: NextRequest.ip was removed in Next.js 15+. Derive the caller IP from
+// headers only. On a plain local dev server with no proxy in front, forwarded
+// headers are absent — that path represents a same-host caller and is allowed.
 export function proxy(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/bridge')) {
-    const ip = request.headers.get('x-forwarded-for') ?? request.ip
-    if (ip !== '127.0.0.1' && ip !== '::1') {
+    const forwarded = request.headers.get('x-forwarded-for')
+    const ip = forwarded?.split(',')[0].trim() ?? request.headers.get('x-real-ip') ?? ''
+    const isLocal =
+      !ip || ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'
+    if (!isLocal) {
       return new NextResponse('Forbidden', { status: 403 })
     }
   }
