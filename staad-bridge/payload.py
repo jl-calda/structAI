@@ -84,6 +84,9 @@ class SyncDiagramPoint(BaseModel):
     mz_knm: float
     vy_kn: float
     n_kn: float = 0.0
+    # Minor-axis moment + shear (required for biaxial column check).
+    my_knm: float = 0.0
+    vz_kn: float = 0.0
 
 
 class SyncEnvelope(BaseModel):
@@ -96,6 +99,11 @@ class SyncEnvelope(BaseModel):
     vu_combo: Optional[int] = None
     nu_tension_max_kn: float = 0.0
     nu_compression_max_kn: float = 0.0
+    # Minor-axis peaks for the biaxial column path.
+    mpos_max_minor_knm: float = 0.0
+    mpos_combo_minor: Optional[int] = None
+    mneg_max_minor_knm: float = 0.0
+    mneg_combo_minor: Optional[int] = None
 
 
 class SyncReaction(BaseModel):

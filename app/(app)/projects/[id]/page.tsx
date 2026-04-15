@@ -4,7 +4,9 @@
  * design modules land), frame viewer, and a placeholder Issues card.
  */
 import { SyncBanner } from '@/components/layout/SyncBanner'
-import { FrameViewer } from '@/components/staad/FrameViewer'
+import { FrameViewer, type MemberAssignment } from '@/components/staad/FrameViewer'
+import { listBeamDesigns } from '@/lib/data/beams'
+import { listColumnDesigns } from '@/lib/data/columns'
 import { getProject } from '@/lib/data/projects'
 import { getLatestSync, listMembers, listNodes } from '@/lib/data/staad'
 import { notFound } from 'next/navigation'
@@ -20,14 +22,29 @@ export default async function OverviewPage({
   const project = await getProject(id)
   if (!project) notFound()
 
-  const [latest, members, nodes] = await Promise.all([
+  const [latest, members, nodes, beamDesigns, columnDesigns] = await Promise.all([
     getLatestSync(id),
     listMembers(id),
     listNodes(id),
+    listBeamDesigns(id),
+    listColumnDesigns(id),
   ])
 
   const beamCount = members.filter((m) => m.member_type === 'beam').length
   const columnCount = members.filter((m) => m.member_type === 'column').length
+
+  // member_id → design assignment, for FrameViewer click-through.
+  const assignments: Record<number, MemberAssignment> = {}
+  for (const b of beamDesigns) {
+    for (const mid of b.member_ids) {
+      assignments[mid] = { kind: 'beam', design_id: b.id, label: b.label }
+    }
+  }
+  for (const c of columnDesigns) {
+    for (const mid of c.member_ids) {
+      assignments[mid] = { kind: 'column', design_id: c.id, label: c.label }
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -54,7 +71,12 @@ export default async function OverviewPage({
             </span>
           </div>
           <div className="cb flex items-center justify-center">
-            <FrameViewer nodes={nodes} members={members} />
+            <FrameViewer
+              nodes={nodes}
+              members={members}
+              assignments={assignments}
+              projectId={id}
+            />
           </div>
         </div>
 
