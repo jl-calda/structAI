@@ -74,6 +74,15 @@ export type BeamStirrupZone = {
   spacing_mm: number
 }
 
+export type ElementType = 'beam' | 'column' | 'slab' | 'footing'
+
+export type BarShape =
+  | 'straight'
+  | 'bent_45'
+  | 'bent_90'
+  | 'closed_tie'
+  | 'hooked'
+
 export type Database = {
   __InternalSupabase: { PostgrestVersion: '12' }
   public: {
@@ -692,6 +701,58 @@ export type Database = {
           code_standard?: CodeStandard
           checked_at?: string
           overall_status?: 'pass' | 'fail' | 'pending'
+        }
+        Relationships: []
+      }
+
+      material_takeoff_items: {
+        Row: {
+          id: string
+          project_id: string
+          element_type: ElementType
+          element_id: string
+          element_label: string
+          bar_mark: string
+          bar_dia_mm: number
+          bar_shape: BarShape
+          length_mm: number
+          quantity: number
+          total_length_m: number
+          unit_weight_kg_m: number
+          weight_kg: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          element_type: ElementType
+          element_id: string
+          element_label: string
+          bar_mark: string
+          bar_dia_mm: number
+          bar_shape: BarShape
+          length_mm: number
+          quantity: number
+          total_length_m: number
+          unit_weight_kg_m: number
+          weight_kg: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          element_type?: ElementType
+          element_id?: string
+          element_label?: string
+          bar_mark?: string
+          bar_dia_mm?: number
+          bar_shape?: BarShape
+          length_mm?: number
+          quantity?: number
+          total_length_m?: number
+          unit_weight_kg_m?: number
+          weight_kg?: number
+          created_at?: string
         }
         Relationships: []
       }

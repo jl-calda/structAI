@@ -25,6 +25,7 @@ import {
   type BeamInput,
   type BeamDiagramSample,
 } from '@/lib/engineering/concrete/beam/group-engine'
+import { buildBeamMto } from '@/lib/mto/beams'
 import { createServiceClient } from '@/lib/supabase/service'
 import type {
   BeamStirrupZone,
@@ -270,6 +271,45 @@ export async function POST(request: NextRequest) {
       })
       .eq('id', d.id)
     if (sErr) return fail(`beam_designs update: ${sErr.message}`, 500)
+
+    // Regenerate MTO rows for this beam — delete-then-insert is the
+    // simplest correct pattern; the index on (project_id, element_type,
+    // element_id) keeps the delete cheap.
+    const mtoRows = buildBeamMto(
+      {
+        id: d.id,
+        project_id: d.project_id,
+        label: d.label,
+        b_mm: d.b_mm,
+        h_mm: d.h_mm,
+        total_span_mm: d.total_span_mm,
+        clear_cover_mm: d.clear_cover_mm,
+      },
+      {
+        id: '',
+        beam_design_id: d.id,
+        perimeter_dia_mm: result.rebar.perimeter_dia_mm,
+        tension_layers,
+        compression_dia_mm: result.rebar.compression_dia_mm,
+        compression_count: result.rebar.compression_count,
+        stirrup_dia_mm: result.rebar.stirrup_dia_mm,
+        stirrup_legs: result.rebar.stirrup_legs,
+        stirrup_zones,
+      },
+    )
+    const { error: delErr } = await supabase
+      .from('material_takeoff_items')
+      .delete()
+      .eq('project_id', d.project_id)
+      .eq('element_type', 'beam')
+      .eq('element_id', d.id)
+    if (delErr) return fail(`mto delete: ${delErr.message}`, 500)
+    if (mtoRows.length > 0) {
+      const { error: mErr } = await supabase
+        .from('material_takeoff_items')
+        .insert(mtoRows)
+      if (mErr) return fail(`mto insert: ${mErr.message}`, 500)
+    }
   }
 
   return ok({
