@@ -62,6 +62,43 @@ export async function POST(request: NextRequest) {
   const mismatchDetected =
     lastSync !== null && lastSync.file_hash !== payload.file_hash
 
+  // 1b. Member-level diff. If the file hash changed, compare the
+  // incoming member set to what's already in staad_members and collect
+  // the ids whose geometry actually changed (section rename, length
+  // delta, node incidence swap). These drive the `geometry_changed`
+  // flag on beam/column designs — Object 2 data is never auto-deleted
+  // (docs/02-architecture.md § Sync Check On Project Open); it's
+  // flagged as unverified so the user can review.
+  let mismatchMembers: number[] = []
+  if (mismatchDetected) {
+    const { data: existingMembers, error: memErr } = await supabase
+      .from('staad_members')
+      .select('member_id, section_name, length_mm, start_node_id, end_node_id')
+      .eq('project_id', payload.project_id)
+    if (memErr) return fail(`members diff: ${memErr.message}`, 500)
+
+    const incomingById = new Map(payload.members.map((m) => [m.member_id, m]))
+    const changed = new Set<number>()
+    for (const prev of existingMembers ?? []) {
+      const next = incomingById.get(prev.member_id)
+      if (!next) {
+        // Member was removed — not a change of an existing design, but
+        // anyone referencing it will now have a dangling id.
+        changed.add(prev.member_id)
+        continue
+      }
+      if (
+        prev.section_name !== next.section_name ||
+        Math.abs(prev.length_mm - next.length_mm) > 0.5 ||
+        prev.start_node_id !== next.start_node_id ||
+        prev.end_node_id !== next.end_node_id
+      ) {
+        changed.add(prev.member_id)
+      }
+    }
+    mismatchMembers = Array.from(changed).sort((a, b) => a - b)
+  }
+
   // 2. Append a sync row (the header — counts fill in below).
   const { data: syncRow, error: syncErr } = await supabase
     .from('staad_syncs')
@@ -73,7 +110,7 @@ export async function POST(request: NextRequest) {
       node_count: payload.nodes.length,
       member_count: payload.members.length,
       mismatch_detected: mismatchDetected,
-      mismatch_members: [],
+      mismatch_members: mismatchMembers,
     })
     .select('id')
     .single()
@@ -82,6 +119,25 @@ export async function POST(request: NextRequest) {
   }
 
   const projectId = payload.project_id
+
+  // 2b. Flag Object 2 designs that reference any changed member. We do
+  // this before the upserts so even if a downstream upsert errors, the
+  // flag stays put and the UI surfaces the mismatch correctly.
+  if (mismatchMembers.length > 0) {
+    const { error: beamFlagErr } = await supabase
+      .from('beam_designs')
+      .update({ geometry_changed: true, design_status: 'unverified' })
+      .eq('project_id', projectId)
+      .overlaps('member_ids', mismatchMembers)
+    if (beamFlagErr) return fail(`beam flag: ${beamFlagErr.message}`, 500)
+
+    const { error: colFlagErr } = await supabase
+      .from('column_designs')
+      .update({ geometry_changed: true, design_status: 'unverified' })
+      .eq('project_id', projectId)
+      .overlaps('member_ids', mismatchMembers)
+    if (colFlagErr) return fail(`col flag: ${colFlagErr.message}`, 500)
+  }
 
   // 3. Upserts, in an order that respects the natural reference chain.
   //    Upsert semantics come from the UNIQUE constraints in migration 0001.
