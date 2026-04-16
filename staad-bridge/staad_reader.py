@@ -57,9 +57,9 @@ class StaadError(RuntimeError):
 # ones in order. When a user reports "Invalid class string" paste the error
 # in and add the new value here.
 _CANDIDATE_PROGIDS = (
-    "OpenSTAAD.Application",
-    "StaadPro.OpenSTAAD",
-    "STAADOpenUI.BOpenSTAAD",
+    "StaadPro.OpenSTAAD",        # V22 CONNECT — confirmed working
+    "OpenSTAAD.Application",     # older versions
+    "STAADOpenUI.BOpenSTAAD",    # legacy
 )
 
 # Methods a running STAAD instance might expose for "what's the current

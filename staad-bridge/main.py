@@ -10,12 +10,16 @@ Binds to 127.0.0.1 only. Exposes:
 
 Background task: every POLL_INTERVAL seconds, hash the .std file and
 post a fresh SyncPayload if the hash changed. See docs/13-bridge.md.
+
+IMPORTANT: Python must be 64-bit to match STAAD V22 CONNECT's COM
+registration. 32-bit Python silently returns 0 for everything.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
@@ -46,8 +50,6 @@ class BridgeState:
 
     def current_hash(self) -> Optional[str]:
         if self.cfg.mock_mode:
-            # Mock mode: hash is computed from the payload itself; we
-            # poll once at startup and never auto-re-sync.
             return self.last_hash
 
         # Pick source: explicit path wins; otherwise ask the running
@@ -85,30 +87,21 @@ async def poll_loop(state: BridgeState) -> None:
 async def _sync_if_changed(state: BridgeState) -> None:
     cfg = state.cfg
     if cfg.mock_mode:
-        # Sync once at startup and then never; the dev workflow is to
-        # hit POST /resync manually when you want fresh mock data.
         if state.last_hash is not None:
             return
 
     current = state.current_hash()
     if current is None and not cfg.mock_mode:
-        # current_hash() has already set state.last_error with the reason.
         logger.warning("poll skipped: %s", state.last_error or "unknown")
         return
     if current == state.last_hash:
         return
 
-    # Prefer the path resolved during hashing (handles the blank-path case
-    # where we ask STAAD for the active doc).
-    source_path = (
-        cfg.staad_file_path
-        if cfg.staad_file_path is not None
-        else (
-            __import__("pathlib").Path(state.resolved_file_path)
-            if state.resolved_file_path
-            else None
-        )
-    )
+    # Use the path resolved during hashing (handles blank STAAD_FILE_PATH
+    # where we asked STAAD for its active doc).
+    source_path = cfg.staad_file_path
+    if source_path is None and state.resolved_file_path:
+        source_path = Path(state.resolved_file_path)
 
     payload = read_model(cfg.project_id, source_path, cfg.mock_mode)
     result = post_sync(cfg.app_url, cfg.bridge_secret, payload)
@@ -175,7 +168,6 @@ async def resync(body: ResyncBody):
             status_code=400,
             detail=f"project_id mismatch: bridge is bound to {s.cfg.project_id}",
         )
-    # Force a sync regardless of hash.
     s.last_hash = None
     try:
         await _sync_if_changed(s)
