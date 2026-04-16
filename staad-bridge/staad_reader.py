@@ -882,9 +882,13 @@ def _support_type_for_node(support, node_id: int) -> Optional[str]:
     except (TypeError, ValueError):
         return None
     if code_int == 1:
-        return "fixed"
-    if code_int == 2:
         return "pinned"
+    if code_int == 2:
+        return "fixed"
+    if code_int == 3:
+        return "fixed"  # FixedBut — fixed with directional releases
+    if code_int in (11, 12, 13):
+        return "fixed" if code_int >= 12 else "pinned"
     return None
 
 
