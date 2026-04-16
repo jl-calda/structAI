@@ -1,0 +1,26 @@
+var group___root =
+[
+    [ "Analyze", "group___root.html#ga646f2f0b6983135b4b3a8ded877475d7", null ],
+    [ "CloseSTAADFile", "group___root.html#gaf249dc19ac760422e78351546918e65d", null ],
+    [ "CreateNamedView", "group___root.html#gaf331e2b24c0e4f4e57c2951594423b2d", null ],
+    [ "GetBaseUnit", "group___root.html#ga7b1d941b62f317a0bdf104d2d4436ae1", null ],
+    [ "GetInputUnitForForce", "group___root.html#gabcc3db5863da3b119b2c5bd4a740f0cd", null ],
+    [ "GetInputUnitForLength", "group___root.html#ga8a846a4f4597cbb6cbed46e86442431c", null ],
+    [ "GetMainWindowHandle", "group___root.html#ga0c0b0f425cd8588f0df3c40ea08a05da", null ],
+    [ "GetProcessHandle", "group___root.html#ga275b4bdab39a0afb0764d4d2e0b2f13e", null ],
+    [ "GetProcessId", "group___root.html#gac7c8010c34e57ab1443b8efacc3235a0", null ],
+    [ "GetShortJobInfo", "group___root.html#ga6d209f7c0ed0aaddfe84c6603078e5a2", null ],
+    [ "GetSTAADFile", "group___root.html#ga2d0ebfc91441ee3b2331bcd2d0ad07d7", null ],
+    [ "GetSTAADFileFolder", "group___root.html#gaefa222ce265399686a53eb2a59d2e947", null ],
+    [ "ModifyNamedView", "group___root.html#gadfb2385ac03c7bf740e24eb24fcca286", null ],
+    [ "NewSTAADFile", "group___root.html#gacdd64b11752dc29f03537526d46553b4", null ],
+    [ "OpenSTAADFile", "group___root.html#ga4ba715d4c1e519ed6f4645ca91db9f99", null ],
+    [ "Quit", "group___root.html#gadd624b0b5b4f45cf4ed97f9557cc88af", null ],
+    [ "RemoveNamedView", "group___root.html#gacd98d0159150ffada6b7e62f2e1687d4", null ],
+    [ "SaveNamedView", "group___root.html#gaeca040a52040da606a81af5407aa464e", null ],
+    [ "SetInputUnitForForce", "group___root.html#ga0d92e92cebdffc1dbf951d07f8d29f1e", null ],
+    [ "SetInputUnitForLength", "group___root.html#ga6bc9354604b80ca54912ec586c4ff931", null ],
+    [ "SetInputUnits", "group___root.html#ga287a24364161a41879432ebc256faea6", null ],
+    [ "SetShortJobInfo", "group___root.html#ga04af5d1d0aa713ba08032cf613aa2193", null ],
+    [ "UpdateStructure", "group___root.html#gaaf431f1bfbee142cd7d55d454d56d995", null ]
+];
