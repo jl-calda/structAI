@@ -183,6 +183,116 @@ def _com_int(obj, name: str) -> int:
         raise StaadError(f"{name} returned non-integer ({result!r}): {e}") from e
 
 
+def _com_float_or_call(obj, name: str, *args) -> float:
+    """Call a COM method that returns a float, handling property-vs-method."""
+    try:
+        result = getattr(obj, name)(*args)
+    except TypeError:
+        result = getattr(obj, name)
+    if result is None:
+        return 0.0
+    return float(result)
+
+
+def _safe_str(obj, name: str, *args) -> str:
+    """Call a COM method that returns a string; returns '' on failure."""
+    try:
+        result = getattr(obj, name)(*args)
+        return str(result) if result else ""
+    except Exception:
+        return ""
+
+
+def _get_node_coords(geometry, node_id: int) -> tuple:
+    """Read (x_mm, y_mm, z_mm) for a node.
+
+    STAAD V22 CONNECT has at least three calling conventions for
+    GetNodeCoordinates depending on how the IDL marks the output params:
+
+    A. Returns a 3-tuple (x, y, z) when called with just the node ID.
+    B. Returns a 3-tuple when called with (nodeID, 0.0, 0.0, 0.0).
+    C. Returns None and fills output VARIANTs by reference — we handle
+       this via win32com's VARIANT wrapper.
+
+    We try A → B → C in order. Coordinates come back in the STAAD unit
+    system (typically metres for metric models); we convert to mm.
+    """
+    import logging
+    log = logging.getLogger("staad-bridge")
+
+    # Attempt A: just the node ID.
+    try:
+        result = geometry.GetNodeCoordinates(node_id)
+        if result is not None and hasattr(result, '__len__') and len(result) >= 3:
+            return float(result[0]) * 1000, float(result[1]) * 1000, float(result[2]) * 1000
+        if result is not None and isinstance(result, (int, float)):
+            # Some builds return just the first coordinate; try with output params.
+            pass
+    except Exception:
+        pass
+
+    # Attempt B: pass dummy output params (win32com may return modified values).
+    try:
+        result = geometry.GetNodeCoordinates(node_id, 0.0, 0.0, 0.0)
+        if result is not None:
+            if hasattr(result, '__len__') and len(result) >= 3:
+                return float(result[0]) * 1000, float(result[1]) * 1000, float(result[2]) * 1000
+            # Single value — sometimes win32com returns a flat tuple of all
+            # output params as one tuple.
+    except Exception:
+        pass
+
+    # Attempt C: VARIANT by-ref. This is the V22 fallback.
+    try:
+        import pythoncom
+        from win32com.client import VARIANT
+        vx = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, 0.0)
+        vy = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, 0.0)
+        vz = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, 0.0)
+        geometry.GetNodeCoordinates(node_id, vx, vy, vz)
+        return float(vx.value) * 1000, float(vy.value) * 1000, float(vz.value) * 1000
+    except Exception as e:
+        log.warning("GetNodeCoordinates(%d) all attempts failed: %s", node_id, e)
+
+    return 0.0, 0.0, 0.0
+
+
+def _get_member_incidences(geometry, member_id: int) -> tuple:
+    """Read (start_node_id, end_node_id) for a member.
+
+    Same multi-attempt strategy as _get_node_coords.
+    """
+    # Attempt A: just the member ID.
+    try:
+        result = geometry.GetMemberIncidences(member_id)
+        if result is not None and hasattr(result, '__len__') and len(result) >= 2:
+            return int(result[0]), int(result[1])
+    except Exception:
+        pass
+
+    # Attempt B: dummy output params.
+    try:
+        result = geometry.GetMemberIncidences(member_id, 0, 0)
+        if result is not None:
+            if hasattr(result, '__len__') and len(result) >= 2:
+                return int(result[0]), int(result[1])
+    except Exception:
+        pass
+
+    # Attempt C: VARIANT by-ref.
+    try:
+        import pythoncom
+        from win32com.client import VARIANT
+        vs = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        ve = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+        geometry.GetMemberIncidences(member_id, vs, ve)
+        return int(vs.value), int(ve.value)
+    except Exception:
+        pass
+
+    return 0, 0
+
+
 def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     import logging
     log = logging.getLogger("staad-bridge")
@@ -216,15 +326,13 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
 
     nodes: List[SyncNode] = []
     for i in range(1, n_nodes + 1):
-        x = y = z = 0.0
-        x, y, z = geometry.GetNodeCoordinates(i, x, y, z)
-        # x/y/z come back in the STAAD unit system. We assume metres → mm.
+        x_mm, y_mm, z_mm = _get_node_coords(geometry, i)
         nodes.append(
             SyncNode(
                 node_id=i,
-                x_mm=float(x) * 1000,
-                y_mm=float(y) * 1000,
-                z_mm=float(z) * 1000,
+                x_mm=x_mm,
+                y_mm=y_mm,
+                z_mm=z_mm,
                 support_type=_support_type_for_node(geometry, i),
             )
         )
@@ -234,15 +342,14 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     log.info("staad read: %d members", n_members)
     members: List[SyncMember] = []
     for i in range(1, n_members + 1):
-        start = end = 0
-        start, end = geometry.GetMemberIncidences(i, start, end)
-        length_m = geometry.GetMemberLength(i)
-        section_name = property_.GetBeamSectionName(i) or f"SECTION-{i}"
+        start_id, end_id = _get_member_incidences(geometry, i)
+        length_m = _com_float_or_call(geometry, "GetMemberLength", i)
+        section_name = _safe_str(property_, "GetBeamSectionName", i) or f"SECTION-{i}"
         members.append(
             SyncMember(
                 member_id=i,
-                start_node_id=int(start),
-                end_node_id=int(end),
+                start_node_id=start_id,
+                end_node_id=end_id,
                 section_name=section_name,
                 length_mm=float(length_m) * 1000,
                 beta_angle_deg=0.0,
