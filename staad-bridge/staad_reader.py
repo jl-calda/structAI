@@ -224,13 +224,7 @@ def _make_variant_long():
 
 
 def _flag_geometry_methods(geometry) -> None:
-    """Call _FlagAsMethod on all geometry methods we use.
-
-    win32com needs this to distinguish COM methods from properties.
-    Without it, `geometry.GetNodeCoordinates(...)` is interpreted as a
-    property access and the output params never get filled. The official
-    OpenStaadPython library does this in Geometry.__init__.
-    """
+    """Call _FlagAsMethod on all geometry methods we use."""
     methods = [
         "GetNodeCount",
         "GetMemberCount",
@@ -238,9 +232,11 @@ def _flag_geometry_methods(geometry) -> None:
         "GetMemberIncidence",
         "GetMemberIncidences",
         "GetMemberLength",
-        "GetNodeCoordinates",
+        "GetBeamLength",
         "GetSupportType",
         "GetMemberSupportNodes",
+        "GetNodeList",
+        "GetMemberList",
     ]
     for name in methods:
         try:
@@ -298,7 +294,15 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
         y = _make_variant_double()
         z = _make_variant_double()
         geometry.GetNodeCoordinates(node_id, x, y, z)
-        return float(x[0]) * 1000, float(y[0]) * 1000, float(z[0]) * 1000
+        # V22 returns VARIANT objects — extract .value or index [0].
+        def _val(v):
+            if hasattr(v, 'value'):
+                return float(v.value)
+            try:
+                return float(v[0])
+            except (TypeError, IndexError):
+                return float(v)
+        return _val(x) * 1000, _val(y) * 1000, _val(z) * 1000
     except Exception as e:
         log.warning("GetNodeCoordinates(%d) failed: %s", node_id, e)
     return 0.0, 0.0, 0.0
@@ -306,6 +310,14 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
 
 def _get_member_incidences(geometry, member_id: int) -> tuple:
     """Read (start_node_id, end_node_id) for a member."""
+    def _ival(v):
+        if hasattr(v, 'value'):
+            return int(v.value)
+        try:
+            return int(v[0])
+        except (TypeError, IndexError):
+            return int(v)
+
     try:
         s = _make_variant_long()
         e = _make_variant_long()
@@ -314,7 +326,7 @@ def _get_member_incidences(geometry, member_id: int) -> tuple:
             geometry.GetMemberIncidence(member_id, s, e)
         except Exception:
             geometry.GetMemberIncidences(member_id, s, e)
-        return int(s[0]), int(e[0])
+        return _ival(s), _ival(e)
     except Exception:
         return 0, 0
 
@@ -373,13 +385,33 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             )
         )
 
+    # Build a node-coordinate lookup for length computation fallback.
+    node_coords = {n.node_id: (n.x_mm, n.y_mm, n.z_mm) for n in nodes}
+
     # Members
     n_members = _com_int(geometry, "GetMemberCount")
     log.info("staad read: %d members", n_members)
     members: List[SyncMember] = []
     for i in range(1, n_members + 1):
         start_id, end_id = _get_member_incidences(geometry, i)
-        length_m = _com_float_or_call(geometry, "GetMemberLength", i)
+
+        # Try GetMemberLength / GetBeamLength; fall back to Euclidean
+        # distance between start and end nodes (already in mm).
+        length_mm = 0.0
+        for method_name in ("GetMemberLength", "GetBeamLength"):
+            try:
+                val = _com_float_or_call(geometry, method_name, i)
+                if val > 0:
+                    length_mm = val * 1000  # metres → mm
+                    break
+            except Exception:
+                continue
+        if length_mm <= 0:
+            a = node_coords.get(start_id, (0, 0, 0))
+            b = node_coords.get(end_id, (0, 0, 0))
+            length_mm = ((b[0]-a[0])**2 + (b[1]-a[1])**2 + (b[2]-a[2])**2) ** 0.5
+            log.info("member %d length from node coords: %.0f mm", i, length_mm)
+
         section_name = _safe_str(property_, "GetBeamSectionName", i) or f"SECTION-{i}"
         members.append(
             SyncMember(
@@ -387,7 +419,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 start_node_id=start_id,
                 end_node_id=end_id,
                 section_name=section_name,
-                length_mm=float(length_m) * 1000,
+                length_mm=length_mm,
                 beta_angle_deg=0.0,
                 member_type=_infer_member_type(geometry, i),
             )
