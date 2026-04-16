@@ -223,20 +223,53 @@ def _make_variant_long():
     return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, sa)
 
 
+def _make_variant_double_array(n: int):
+    """By-ref VARIANT holding an n-element double array for COM output
+    params like `pdForces` in GetIntermediateMemberForcesAtDistance."""
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+    sa = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0] * n)
+    return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, sa)
+
+
+def _make_variant_long_array(n: int):
+    """By-ref VARIANT holding an n-element long array for output params
+    like `lCases` in GetPrimaryLoadCaseNumbers."""
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+    sa = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0] * n)
+    return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, sa)
+
+
+def _variant_to_list(v) -> list:
+    """Extract a list from a by-ref VARIANT output. V22 returns VARIANT
+    objects with `.value`; older builds return raw tuples."""
+    if hasattr(v, "value"):
+        val = v.value
+    else:
+        val = v
+    if val is None:
+        return []
+    try:
+        return list(val)
+    except TypeError:
+        return [val]
+
+
 def _flag_geometry_methods(geometry) -> None:
-    """Call _FlagAsMethod on all geometry methods we use."""
+    """Call _FlagAsMethod on all geometry methods we use.
+
+    Names must match the OpenSTAAD COM API exactly. See
+    docs/openstaad/OSAPP/class_o_s_geometry_u_i.html.
+    """
     methods = [
         "GetNodeCount",
         "GetMemberCount",
         "GetNodeCoordinates",
         "GetMemberIncidence",
-        "GetMemberIncidences",
-        "GetMemberLength",
         "GetBeamLength",
-        "GetSupportType",
-        "GetMemberSupportNodes",
         "GetNodeList",
-        "GetMemberList",
+        "GetBeamList",
     ]
     for name in methods:
         try:
@@ -245,8 +278,20 @@ def _flag_geometry_methods(geometry) -> None:
             pass  # method doesn't exist on this COM version — skip
 
 
+def _flag_support_methods(support_obj) -> None:
+    methods = ["GetSupportType", "GetSupportCount", "GetSupportNodes"]
+    for name in methods:
+        try:
+            support_obj._FlagAsMethod(name)
+        except Exception:
+            pass
+
+
 def _flag_property_methods(property_obj) -> None:
-    methods = ["GetBeamSectionName", "GetBeamSectionWidth", "GetBeamSectionDepth"]
+    # GetBeamSectionWidth/GetBeamSectionDepth are not in OpenSTAAD — flag
+    # only methods that actually exist. Section dims come from the
+    # property-values call (best-effort; optional in the payload).
+    methods = ["GetBeamSectionName", "GetSectionPropertyValues"]
     for name in methods:
         try:
             property_obj._FlagAsMethod(name)
@@ -255,10 +300,12 @@ def _flag_property_methods(property_obj) -> None:
 
 
 def _flag_load_methods(load_obj) -> None:
+    # OpenSTAAD exposes plural ...Numbers methods that fill a by-ref array;
+    # there is no singular per-index accessor.
     methods = [
-        "GetPrimaryLoadCaseCount", "GetPrimaryLoadCaseNumber",
+        "GetPrimaryLoadCaseCount", "GetPrimaryLoadCaseNumbers",
         "GetLoadCaseTitle", "GetLoadCombinationCaseCount",
-        "GetLoadCombinationCaseNumber",
+        "GetLoadCombinationCaseNumbers",
     ]
     for name in methods:
         try:
@@ -268,8 +315,10 @@ def _flag_load_methods(load_obj) -> None:
 
 
 def _flag_output_methods(output_obj) -> None:
+    # Per-section forces come from GetIntermediateMemberForcesAtDistance;
+    # GetMemberEndForcesAtDistance is not an OpenSTAAD method.
     methods = [
-        "GetMemberEndForcesAtDistance", "GetSupportReactions",
+        "GetIntermediateMemberForcesAtDistance", "GetSupportReactions",
         "GetMemberEndForces",
     ]
     for name in methods:
@@ -309,7 +358,9 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
 
 
 def _get_member_incidences(geometry, member_id: int) -> tuple:
-    """Read (start_node_id, end_node_id) for a member."""
+    """Read (start_node_id, end_node_id) for a member via
+    Geometry.GetMemberIncidence (singular — no plural form exists in the
+    OpenSTAAD COM API)."""
     def _ival(v):
         if hasattr(v, 'value'):
             return int(v.value)
@@ -321,11 +372,7 @@ def _get_member_incidences(geometry, member_id: int) -> tuple:
     try:
         s = _make_variant_long()
         e = _make_variant_long()
-        # V22 uses GetMemberIncidence (singular); older uses GetMemberIncidences.
-        try:
-            geometry.GetMemberIncidence(member_id, s, e)
-        except Exception:
-            geometry.GetMemberIncidences(member_id, s, e)
+        geometry.GetMemberIncidence(member_id, s, e)
         return _ival(s), _ival(e)
     except Exception:
         return 0, 0
@@ -346,15 +393,17 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         property_ = staad.Property
         load = staad.Load
         output = staad.Output
+        support = staad.Support  # GetSupportType lives here, not on Geometry
     except Exception as e:
         raise StaadError(
-            f"Could not access Geometry/Property/Load/Output on the STAAD COM "
-            f"object. Underlying error: {e}. If you're on STAAD CONNECT V22, "
-            f"check that a model is currently open in STAAD."
+            f"Could not access Geometry/Property/Load/Output/Support on the "
+            f"STAAD COM object. Underlying error: {e}. If you're on STAAD "
+            f"CONNECT V22, check that a model is currently open in STAAD."
         ) from e
 
     # Tell win32com which attributes are callable methods, not properties.
     _flag_geometry_methods(geometry)
+    _flag_support_methods(support)
     _flag_property_methods(property_)
     _flag_load_methods(load)
     _flag_output_methods(output)
@@ -381,7 +430,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 x_mm=x_mm,
                 y_mm=y_mm,
                 z_mm=z_mm,
-                support_type=_support_type_for_node(geometry, i),
+                support_type=_support_type_for_node(support, i),
             )
         )
 
@@ -395,17 +444,15 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     for i in range(1, n_members + 1):
         start_id, end_id = _get_member_incidences(geometry, i)
 
-        # Try GetMemberLength / GetBeamLength; fall back to Euclidean
-        # distance between start and end nodes (already in mm).
+        # GetBeamLength is the only length accessor in OpenSTAAD's Geometry
+        # class; fall back to Euclidean distance between start/end nodes.
         length_mm = 0.0
-        for method_name in ("GetMemberLength", "GetBeamLength"):
-            try:
-                val = _com_float_or_call(geometry, method_name, i)
-                if val > 0:
-                    length_mm = val * 1000  # metres → mm
-                    break
-            except Exception:
-                continue
+        try:
+            val = _com_float_or_call(geometry, "GetBeamLength", i)
+            if val > 0:
+                length_mm = val * 1000  # metres → mm
+        except Exception:
+            pass
         if length_mm <= 0:
             a = node_coords.get(start_id, (0, 0, 0))
             b = node_coords.get(end_id, (0, 0, 0))
@@ -452,57 +499,85 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         )
     ]
 
-    # Load cases
+    # Load cases — GetPrimaryLoadCaseNumbers fills a by-ref array of case
+    # numbers in one call; there is no per-index accessor.
     n_cases = _com_int(load, "GetPrimaryLoadCaseCount")
     log.info("staad read: %d primary load cases", n_cases)
     load_cases: List[SyncLoadCase] = []
-    for i in range(1, n_cases + 1):
-        num = load.GetPrimaryLoadCaseNumber(i)
-        title = load.GetLoadCaseTitle(num) or f"CASE {num}"
-        load_cases.append(
-            SyncLoadCase(
-                case_number=int(num),
-                title=str(title),
-                load_type=_infer_load_type(title),
+    if n_cases > 0:
+        case_array = _make_variant_long_array(n_cases)
+        try:
+            load.GetPrimaryLoadCaseNumbers(case_array)
+        except Exception as e:
+            raise StaadError(f"GetPrimaryLoadCaseNumbers: {e}") from e
+        for num in _variant_to_list(case_array):
+            num = int(num)
+            title = load.GetLoadCaseTitle(num) or f"CASE {num}"
+            load_cases.append(
+                SyncLoadCase(
+                    case_number=num,
+                    title=str(title),
+                    load_type=_infer_load_type(str(title)),
+                )
             )
-        )
 
-    # Combinations
+    # Combinations — same pattern: one plural array-filling call.
     n_combos = _com_int(load, "GetLoadCombinationCaseCount")
     log.info("staad read: %d combinations", n_combos)
     combos: List[SyncCombination] = []
     combo_numbers: List[int] = []
-    for i in range(1, n_combos + 1):
-        combo_num = load.GetLoadCombinationCaseNumber(i)
-        combo_numbers.append(int(combo_num))
-        title = load.GetLoadCaseTitle(combo_num) or f"COMBO {combo_num}"
-        # STAAD exposes the factors via a separate call; we skip parsing
-        # and record an empty factors list — the app regenerates its own
-        # combos when the user hits "Generate" in the UI.
-        combos.append(
-            SyncCombination(
-                combo_number=int(combo_num),
-                title=str(title),
-                factors=[],
-                source="imported",
+    if n_combos > 0:
+        combo_array = _make_variant_long_array(n_combos)
+        try:
+            load.GetLoadCombinationCaseNumbers(combo_array)
+        except Exception as e:
+            raise StaadError(f"GetLoadCombinationCaseNumbers: {e}") from e
+        for combo_num in _variant_to_list(combo_array):
+            combo_num = int(combo_num)
+            combo_numbers.append(combo_num)
+            title = load.GetLoadCaseTitle(combo_num) or f"COMBO {combo_num}"
+            # STAAD exposes the factors via a separate call; we skip parsing
+            # and record an empty factors list — the app regenerates its own
+            # combos when the user hits "Generate" in the UI.
+            combos.append(
+                SyncCombination(
+                    combo_number=combo_num,
+                    title=str(title),
+                    factors=[],
+                    source="imported",
+                )
             )
-        )
 
     # Diagram points — the critical bit.
     # For each member, for each combo, sample M(x) and V(x) at 11 x_ratios.
+    # Uses OSOutputUI.GetIntermediateMemberForcesAtDistance with a by-ref
+    # 6-element double array for [Fx, Fy, Fz, Mx, My, Mz] in local axes.
+    # Reuses length_mm computed above — GetMemberLength is not part of the
+    # OpenSTAAD COM API.
+    length_m_by_member = {m.member_id: m.length_mm / 1000.0 for m in members}
     diagram_points: List[SyncDiagramPoint] = []
     envelope_map: dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
     for mid in range(1, n_members + 1):
-        length_m = geometry.GetMemberLength(mid)
+        length_m = length_m_by_member.get(mid, 0.0)
         for combo in combo_numbers:
             for s in range(N_SAMPLES):
                 x_ratio = s / (N_SAMPLES - 1)
-                x_mm = float(length_m) * 1000 * x_ratio
-                forces = output.GetMemberEndForcesAtDistance(
-                    mid, combo, x_ratio * length_m, True,
-                )
-                # forces layout per STAAD OpenSTAAD docs:
+                x_mm = length_m * 1000 * x_ratio
+                pd_forces = _make_variant_double_array(6)
+                try:
+                    output.GetIntermediateMemberForcesAtDistance(
+                        mid, x_ratio * length_m, combo, pd_forces,
+                    )
+                except Exception as e:
+                    raise StaadError(
+                        f"GetIntermediateMemberForcesAtDistance(mid={mid}, "
+                        f"d={x_ratio * length_m:.3f}, lc={combo}): {e}"
+                    ) from e
+                # pdForces layout per OpenSTAAD docs (local axes):
                 # [0]=Fx, [1]=Fy, [2]=Fz, [3]=Mx, [4]=My, [5]=Mz
+                forces = _variant_to_list(pd_forces)
+                if len(forces) < 6:
+                    forces = list(forces) + [0.0] * (6 - len(forces))
                 fx, fy, fz, _mx, my, mz = forces[0:6]
                 diagram_points.append(SyncDiagramPoint(
                     member_id=mid,
@@ -525,15 +600,24 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
 
     envelope = [acc.to_row(mid) for mid, acc in envelope_map.items()]
 
-    # Reactions
+    # Reactions — GetSupportReactions(nNodeNo, nLC, pdReactions) uses the
+    # same by-ref 6-element output-array pattern as the forces call.
     reactions: List[SyncReaction] = []
     support_nodes = [n.node_id for n in nodes if n.support_type is not None]
     for node in support_nodes:
         for combo in combo_numbers:
-            rx = ry = rz = mx = my = mz = 0.0
-            r = output.GetSupportReactions(node, combo)
-            if r and len(r) >= 6:
-                rx, ry, rz, mx, my, mz = r[0:6]
+            pd_reactions = _make_variant_double_array(6)
+            try:
+                output.GetSupportReactions(node, combo, pd_reactions)
+            except Exception as e:
+                log.warning(
+                    "GetSupportReactions(node=%d, lc=%d): %s", node, combo, e,
+                )
+                continue
+            r = _variant_to_list(pd_reactions)
+            if len(r) < 6:
+                r = list(r) + [0.0] * (6 - len(r))
+            rx, ry, rz, mx, my, mz = r[0:6]
             reactions.append(SyncReaction(
                 node_id=int(node),
                 combo_number=int(combo),
@@ -781,15 +865,22 @@ class _EnvelopeAcc:
         )
 
 
-def _support_type_for_node(geometry, node_id: int) -> Optional[str]:
-    """Best-effort read of support type from STAAD geometry COM."""
+def _support_type_for_node(support, node_id: int) -> Optional[str]:
+    """Best-effort read of support type from OSSupportUI.GetSupportType.
+
+    Per OpenSTAAD docs this method lives on the Support COM object, NOT on
+    Geometry. Returns None for unsupported nodes (docs: "returns 0 if node
+    is not a support node")."""
     try:
-        code = geometry.GetSupportType(node_id)
+        code = support.GetSupportType(node_id)
     except Exception:
         return None
     if code is None:
         return None
-    code_int = int(code)
+    try:
+        code_int = int(code)
+    except (TypeError, ValueError):
+        return None
     if code_int == 1:
         return "fixed"
     if code_int == 2:
@@ -798,23 +889,26 @@ def _support_type_for_node(geometry, node_id: int) -> Optional[str]:
 
 
 def _section_dims(property_, section_name: str) -> dict:
-    """Read b/h/area from STAAD where possible. Everything optional."""
-    try:
-        b = float(property_.GetBeamSectionWidth(section_name)) * 1000
-        h = float(property_.GetBeamSectionDepth(section_name)) * 1000
-        return {"b_mm": b, "h_mm": h, "area_mm2": b * h}
-    except Exception:
-        return {"b_mm": None, "h_mm": None, "area_mm2": None}
+    """Section b/h/area are optional in the payload. OpenSTAAD has no
+    per-name width/depth accessor; GetSectionPropertyValues could be used
+    but requires resolving the section reference number first. Left as a
+    best-effort stub — the app side treats these as optional."""
+    return {"b_mm": None, "h_mm": None, "area_mm2": None}
 
 
 def _infer_member_type(geometry, member_id: int) -> str:
-    """Call the member a beam if it's more horizontal than vertical, else column."""
+    """Call the member a beam if it's more horizontal than vertical, else column.
+
+    Uses the same VARIANT by-ref helpers as the rest of the reader — the
+    previous implementation passed plain Python ints to COM by-ref slots
+    and always raised, defaulting every member to 'other'.
+    """
     try:
-        start = end = 0
-        start, end = geometry.GetMemberIncidences(member_id, start, end)
-        x1 = y1 = z1 = x2 = y2 = z2 = 0.0
-        x1, y1, z1 = geometry.GetNodeCoordinates(start, x1, y1, z1)
-        x2, y2, z2 = geometry.GetNodeCoordinates(end, x2, y2, z2)
+        start, end = _get_member_incidences(geometry, member_id)
+        if start <= 0 or end <= 0:
+            return "other"
+        x1, y1, z1 = _get_node_coords(geometry, start)
+        x2, y2, z2 = _get_node_coords(geometry, end)
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         dz = abs(z2 - z1)
