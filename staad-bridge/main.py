@@ -4,20 +4,23 @@ Binds to 127.0.0.1 only. Exposes:
   GET  /status              — health check the app polls.
   POST /resync              — force an immediate read + post.
   POST /push-combinations   — receive app-generated combos to inject
-                              back into STAAD. Phase 1 scope: log only;
-                              actual STAAD writing lands when the COM
-                              write path is built out.
+                              back into STAAD.
 
 Background task: every POLL_INTERVAL seconds, hash the .std file and
 post a fresh SyncPayload if the hash changed. See docs/13-bridge.md.
 
 IMPORTANT: Python must be 64-bit to match STAAD V22 CONNECT's COM
 registration. 32-bit Python silently returns 0 for everything.
+
+COM threading: all COM calls run in a dedicated thread via
+run_in_executor so pythoncom.CoInitialize() works correctly.
+Asyncio's event loop thread doesn't play well with COM apartments.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -37,23 +40,21 @@ from sync_client import post_sync
 logger = logging.getLogger("staad-bridge")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+# Single-thread executor so COM stays in one apartment-initialized thread.
+_com_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="com")
+
 
 class BridgeState:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.last_hash: Optional[str] = None
         self.last_error: Optional[str] = None
-        # Path actually used on the last poll. When STAAD_FILE_PATH is
-        # blank this is resolved from the running STAAD instance so the
-        # UI can show the right file name even in "active doc" mode.
         self.resolved_file_path: Optional[str] = None
 
     def current_hash(self) -> Optional[str]:
         if self.cfg.mock_mode:
             return self.last_hash
 
-        # Pick source: explicit path wins; otherwise ask the running
-        # STAAD instance which .std is currently open.
         source_path = self.cfg.staad_file_path
         if source_path is None:
             try:
@@ -73,50 +74,67 @@ class BridgeState:
 STATE: Optional[BridgeState] = None
 
 
-async def poll_loop(state: BridgeState) -> None:
-    """Every POLL_INTERVAL seconds: check hash, sync if changed."""
-    while True:
-        try:
-            await _sync_if_changed(state)
-        except Exception as e:  # noqa: BLE001 — keep the loop alive
-            state.last_error = str(e)
-            logger.exception("poll_loop error")
-        await asyncio.sleep(state.cfg.poll_interval_s)
+def _sync_blocking(state: BridgeState) -> None:
+    """Run the full sync cycle in a dedicated thread with COM initialized.
 
+    COM (win32com) requires pythoncom.CoInitialize() on the thread that
+    makes the calls. Asyncio's event loop thread doesn't reliably support
+    this. Running all COM work in a single-thread executor ensures the
+    apartment model is correct and the COM proxy objects stay valid.
+    """
+    try:
+        import pythoncom
+        pythoncom.CoInitialize()
+    except ImportError:
+        pass  # non-Windows / mock mode — no COM needed
 
-async def _sync_if_changed(state: BridgeState) -> None:
-    cfg = state.cfg
-    if cfg.mock_mode:
-        if state.last_hash is not None:
+    try:
+        cfg = state.cfg
+        if cfg.mock_mode and state.last_hash is not None:
             return
 
-    current = state.current_hash()
-    if current is None and not cfg.mock_mode:
-        logger.warning("poll skipped: %s", state.last_error or "unknown")
-        return
-    if current == state.last_hash:
-        return
+        current = state.current_hash()
+        if current is None and not cfg.mock_mode:
+            logger.warning("poll skipped: %s", state.last_error or "unknown")
+            return
+        if current == state.last_hash:
+            return
 
-    # Use the path resolved during hashing (handles blank STAAD_FILE_PATH
-    # where we asked STAAD for its active doc).
-    source_path = cfg.staad_file_path
-    if source_path is None and state.resolved_file_path:
-        source_path = Path(state.resolved_file_path)
+        source_path = cfg.staad_file_path
+        if source_path is None and state.resolved_file_path:
+            source_path = Path(state.resolved_file_path)
 
-    payload = read_model(cfg.project_id, source_path, cfg.mock_mode)
-    result = post_sync(cfg.app_url, cfg.bridge_secret, payload)
-    if result.ok:
-        state.last_hash = payload.file_hash
-        state.last_error = None
-        logger.info(
-            "sync ok: file=%s hash=%s counts=%s",
-            payload.file_name,
-            payload.file_hash[:8],
-            result.data.get("counts") if result.data else "?",
-        )
-    else:
-        state.last_error = result.error
-        logger.error("sync failed: %s", result.error)
+        payload = read_model(cfg.project_id, source_path, cfg.mock_mode)
+        result = post_sync(cfg.app_url, cfg.bridge_secret, payload)
+        if result.ok:
+            state.last_hash = payload.file_hash
+            state.last_error = None
+            logger.info(
+                "sync ok: file=%s hash=%s counts=%s",
+                payload.file_name,
+                payload.file_hash[:8],
+                result.data.get("counts") if result.data else "?",
+            )
+        else:
+            state.last_error = result.error
+            logger.error("sync failed: %s", result.error)
+    except Exception as e:
+        state.last_error = str(e)
+        logger.exception("sync error")
+    finally:
+        try:
+            import pythoncom
+            pythoncom.CoUninitialize()
+        except (ImportError, Exception):
+            pass
+
+
+async def poll_loop(state: BridgeState) -> None:
+    """Every POLL_INTERVAL seconds: run sync in the COM thread."""
+    loop = asyncio.get_event_loop()
+    while True:
+        await loop.run_in_executor(_com_executor, _sync_blocking, state)
+        await asyncio.sleep(state.cfg.poll_interval_s)
 
 
 @asynccontextmanager
@@ -133,6 +151,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         task.cancel()
+        _com_executor.shutdown(wait=False)
 
 
 app = FastAPI(title="StructAI Bridge", lifespan=lifespan)
@@ -169,10 +188,8 @@ async def resync(body: ResyncBody):
             detail=f"project_id mismatch: bridge is bound to {s.cfg.project_id}",
         )
     s.last_hash = None
-    try:
-        await _sync_if_changed(s)
-    except StaadError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(_com_executor, _sync_blocking, s)
     if s.last_error:
         raise HTTPException(status_code=500, detail=s.last_error)
     return {"ok": True, "hash": s.last_hash}
@@ -184,9 +201,7 @@ def push_combinations(body: PushCombinationsBody):
 
     Phase 1 scope: log them. Writing them back into the STAAD model
     requires the OpenSTAAD Load + SetLoadCombinationFactor COM calls
-    which are version-sensitive; that's a later commit. The app
-    degrades gracefully when this endpoint no-ops (combos stay in
-    Supabase with source='app_generated').
+    which are version-sensitive; that's a later commit.
     """
     s = _state()
     if body.project_id != s.cfg.project_id:
