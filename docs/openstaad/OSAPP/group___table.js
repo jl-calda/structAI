@@ -1,0 +1,26 @@
+var group___table =
+[
+    [ "AddTable", "group___table.html#ga290b4a43a1c62b9373448d09dfcf91bd", null ],
+    [ "CreateReport", "group___table.html#gae01ef57411174492e697268fdc10aeab", null ],
+    [ "DeleteTable", "group___table.html#ga98f2843f774ff48bd424e52b750a8ea0", null ],
+    [ "GetCellValue", "group___table.html#gab3fa167c0c15a7ab5cc620bbc6c758c7", null ],
+    [ "GetReportCount", "group___table.html#gaf44cf23f412b6f167687daeb2a6a27da", null ],
+    [ "GetTableCount", "group___table.html#gae03d9fe3b9c0e5ce9c6a7e44b286c9a2", null ],
+    [ "RenameTable", "group___table.html#gaa103253fe1917dd7858ef95d877a2aef", null ],
+    [ "ResizeTable", "group___table.html#gaeeeabb0ab44d224ed382da6c67f5dcab", null ],
+    [ "SaveReport", "group___table.html#ga51c64edd9634d684b57d1360012c1129", null ],
+    [ "SaveReportAll", "group___table.html#gaf846474a8802876be358da52ff41ec21", null ],
+    [ "SaveTable", "group___table.html#ga47c79f2977543e071cf7f36693010c7e", null ],
+    [ "SetCellTextBold", "group___table.html#ga276740e7efec12ecc0778ca11031836e", null ],
+    [ "SetCellTextColor", "group___table.html#ga82643e4ba7ce238d2f31abd50734bea9", null ],
+    [ "SetCellTextHorzAlignment", "group___table.html#ga4b2886afe16ebd9632f97fe4b5637e8d", null ],
+    [ "SetCellTextItalic", "group___table.html#ga32f5eff8ba94c8258edd82a9e5b0f40f", null ],
+    [ "SetCellTextSize", "group___table.html#ga83f1ee3a8b9c5f964284a575b7c33811", null ],
+    [ "SetCellTextSizeAll", "group___table.html#ga03e55a45d5ec4b92ecf64ab3b696f2e9", null ],
+    [ "SetCellTextUnderline", "group___table.html#ga6230aedbfdf0d9f8d6466c6a4927f0fb", null ],
+    [ "SetCellTextVertAlignment", "group___table.html#ga9846d7eeef4bd24a9eecffa3af7452f1", null ],
+    [ "SetCellValue", "group___table.html#ga8fdf9c6f724e6a89e01e2c98fe9b342c", null ],
+    [ "SetColumnHeader", "group___table.html#gae61b64578ab572c3ef5fb3e6a3e12476", null ],
+    [ "SetColumnUnitString", "group___table.html#ga3683e0ed94cd0586cf931812dc5ccf2b", null ],
+    [ "SetRowHeader", "group___table.html#gace3b6978fac76ae72edbb2d25937cd5f", null ]
+];

@@ -1,0 +1,28 @@
+var group___mem_group =
+[
+    [ "AddBeam", "group___mem_group.html#gaa80b6e8c60ee521abc18adef10db331e", null ],
+    [ "AddMultipleBeams", "group___mem_group.html#gaf857067eb642076b8202cec4f0df1b09", null ],
+    [ "ClearMemberSelection", "group___mem_group.html#ga5a0669ba75ec602204b0ac7e3c14ec0a", null ],
+    [ "CreateBeam", "group___mem_group.html#ga0db25e622b229b79fed304db8cc9ceb1", null ],
+    [ "DeleteBeam", "group___mem_group.html#ga21e519d3d6f431f8a2eceae35159bd8b", null ],
+    [ "GetBeamList", "group___mem_group.html#ga5e2082b8d7be7ba22d7b6f13081b9be6", null ],
+    [ "GetBeamsConnectedAtNode", "group___mem_group.html#gaaaf0f9e0a46deb41c36d037d358763f7", null ],
+    [ "GetLastBeamNo", "group___mem_group.html#ga5ff6be60637bbe6b6dbb6662bf1eadb0", null ],
+    [ "GetMemberCount", "group___mem_group.html#ga949e2df9a040dfc277e4ec2a73b1a800", null ],
+    [ "GetMemberIncidence", "group___mem_group.html#ga5f3c5f19ca82ed9dde4c463534d44c10", null ],
+    [ "GetMemberIncidence_CIS2", "group___mem_group.html#ga8faf66aa6cd624ed6488885c105d524a", null ],
+    [ "GetMemberUniqueID", "group___mem_group.html#ga81e60a3d395a4fdaaae305a3be5414e9", null ],
+    [ "GetNoOfBeamsConnectedAtNode", "group___mem_group.html#ga67204dfa35cf10b102e7dd88b06b2d93", null ],
+    [ "GetNoOfSelectedBeams", "group___mem_group.html#ga8ef4cf38d6e94967828ea887d65e1acf", null ],
+    [ "GetSelectedBeams", "group___mem_group.html#ga4a9f2582f4d749d0f958087792042a1d", null ],
+    [ "IsBeam", "group___mem_group.html#ga0fd98a4e5f1e658513c6a521765a82f9", null ],
+    [ "IsColumn", "group___mem_group.html#ga8250cc536dbce64de7ddb1d7915b2e4b", null ],
+    [ "IsPhysicalModel", "group___mem_group.html#ga95c33fb64a10923e179bf067fd006a7b", null ],
+    [ "IsZUp", "group___mem_group.html#ga54c14fbd6b433b1cb19c6a55aea0cc5b", null ],
+    [ "RenumberBeam", "group___mem_group.html#ga4904dd27eaff80af6cc3de5532a31448", null ],
+    [ "SelectBeam", "group___mem_group.html#gad04b0a45962016d7b4aa574f203b22df", null ],
+    [ "SelectMultipleBeams", "group___mem_group.html#ga493fc9ba6c831a1c23a717754a7dd62e", null ],
+    [ "SetMemberUniqueID", "group___mem_group.html#ga40eea400ba8ff5c69836b30d28657e21", null ],
+    [ "SplitBeam", "group___mem_group.html#gaf548964ec30978c451b96592de2c22b4", null ],
+    [ "SplitBeamInEqlParts", "group___mem_group.html#ga86c90a78d70f4f7686b58e02187956b7", null ]
+];
