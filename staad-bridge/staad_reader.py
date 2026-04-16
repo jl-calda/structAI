@@ -323,7 +323,11 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     import logging
     log = logging.getLogger("staad-bridge")
 
-    staad = _open_staad(file_path)
+    # Single COM connection — don't call OpenSTAADFile; the model is
+    # already open in STAAD. Creating multiple connections or re-opening
+    # the file disrupts V22 CONNECT's COM state.
+    staad, progid = _connect_to_staad()
+    log.info("connected via %s", progid)
 
     try:
         geometry = staad.Geometry
@@ -338,7 +342,6 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         ) from e
 
     # Tell win32com which attributes are callable methods, not properties.
-    # Without this, V22 CONNECT returns None for output-param methods.
     _flag_geometry_methods(geometry)
     _flag_property_methods(property_)
     _flag_load_methods(load)
@@ -666,18 +669,17 @@ def read_model(project_id: str, file_path: Optional[Path], mock: bool) -> SyncPa
     """Read the STAAD model → SyncPayload.
 
     Priority:
-      1. mock = True            → synthetic 3-storey frame.
-      2. file_path given        → open it via COM (no-op if already loaded),
-                                  then read.
-      3. file_path is None      → attach to the running STAAD instance and
-                                  read whatever it currently has open.
+      1. mock = True  → synthetic 3-storey frame.
+      2. Otherwise    → attach to the running STAAD instance and read.
+                        file_path is used only for the SyncPayload.file_name
+                        field; we do NOT call OpenSTAADFile — the model is
+                        already loaded in STAAD.
     """
     if mock:
         return _read_mock_model(project_id)
-    if file_path is None:
-        # Resolve the active doc's path so we can still hash it. The
-        # _read_real_model call itself will reuse the same COM connection.
-        file_path = resolve_active_staad_file()
+    # Don't call resolve_active_staad_file() here — it creates a second
+    # COM connection that interferes with _read_real_model's connection
+    # on V22 CONNECT. _read_real_model uses a single _connect_to_staad().
     return _read_real_model(project_id, file_path)
 
 
