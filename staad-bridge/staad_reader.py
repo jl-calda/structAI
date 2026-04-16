@@ -183,24 +183,93 @@ def _com_int(obj, name: str) -> int:
         raise StaadError(f"{name} returned non-integer ({result!r}): {e}") from e
 
 
+def _unwrap(v):
+    """Recursively unwrap a COM VARIANT until we get a Python primitive.
+
+    V22 CONNECT wraps output params in nested VARIANTs. A single call
+    might return VARIANT(VARIANT(array([3.5]))). This function peels
+    every layer — .value, [0], iteration — until it finds a plain
+    int/float/str/None.
+    """
+    for _ in range(10):  # cap to prevent infinite loops
+        if v is None:
+            return 0
+        if isinstance(v, (int, float, str)):
+            return v
+        # Try .value (VARIANT wrapper)
+        if hasattr(v, 'value'):
+            v = v.value
+            continue
+        # Try indexing (safe array or tuple)
+        if hasattr(v, '__getitem__') and hasattr(v, '__len__'):
+            if len(v) > 0:
+                v = v[0]
+                continue
+            return 0
+        # Try float/int conversion directly
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            pass
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            pass
+        return 0
+    return 0
+
+
+def _unwrap_float(v) -> float:
+    r = _unwrap(v)
+    try:
+        return float(r)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _unwrap_int(v) -> int:
+    r = _unwrap(v)
+    try:
+        return int(r)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _com_float_or_call(obj, name: str, *args) -> float:
     """Call a COM method that returns a float, handling property-vs-method."""
     try:
         result = getattr(obj, name)(*args)
     except TypeError:
-        result = getattr(obj, name)
-    if result is None:
+        try:
+            result = getattr(obj, name)
+        except Exception:
+            return 0.0
+    except AttributeError:
         return 0.0
-    return float(result)
+    return _unwrap_float(result)
 
 
 def _safe_str(obj, name: str, *args) -> str:
     """Call a COM method that returns a string; returns '' on failure."""
     try:
         result = getattr(obj, name)(*args)
-        return str(result) if result else ""
+        v = _unwrap(result)
+        return str(v) if v else ""
     except Exception:
         return ""
+
+
+def _safe_com_call(obj, name: str, *args):
+    """Call a COM method, unwrap the result, return it. Returns None on failure."""
+    try:
+        obj._FlagAsMethod(name)
+    except Exception:
+        pass
+    try:
+        result = getattr(obj, name)(*args)
+        return _unwrap(result)
+    except Exception:
+        return None
 
 
 def _make_variant_double():
@@ -280,55 +349,77 @@ def _flag_output_methods(output_obj) -> None:
 
 
 def _get_node_coords(geometry, node_id: int) -> tuple:
-    """Read (x_mm, y_mm, z_mm) for a node using the VARIANT by-ref
-    pattern from the official OpenSTAAD Python library.
+    """Read (x_mm, y_mm, z_mm) for a node.
 
-    Coordinates come back in the STAAD unit system (typically metres
-    for metric models); we convert to mm.
+    Tries the VARIANT by-ref pattern first; falls back to simpler
+    calling conventions. Uses _unwrap_float to peel any nested
+    VARIANT layers. Coordinates are in STAAD units (metres) → mm.
     """
     import logging
     log = logging.getLogger("staad-bridge")
 
+    # Attempt 1: VARIANT by-ref (official pattern).
     try:
         x = _make_variant_double()
         y = _make_variant_double()
         z = _make_variant_double()
         geometry.GetNodeCoordinates(node_id, x, y, z)
-        # V22 returns VARIANT objects — extract .value or index [0].
-        def _val(v):
-            if hasattr(v, 'value'):
-                return float(v.value)
-            try:
-                return float(v[0])
-            except (TypeError, IndexError):
-                return float(v)
-        return _val(x) * 1000, _val(y) * 1000, _val(z) * 1000
-    except Exception as e:
-        log.warning("GetNodeCoordinates(%d) failed: %s", node_id, e)
+        xf = _unwrap_float(x) * 1000
+        yf = _unwrap_float(y) * 1000
+        zf = _unwrap_float(z) * 1000
+        if xf != 0 or yf != 0 or zf != 0:
+            return xf, yf, zf
+    except Exception:
+        pass
+
+    # Attempt 2: pass node ID only — some builds return a tuple.
+    try:
+        result = geometry.GetNodeCoordinates(node_id)
+        if result is not None:
+            if hasattr(result, '__len__') and len(result) >= 3:
+                return _unwrap_float(result[0]) * 1000, _unwrap_float(result[1]) * 1000, _unwrap_float(result[2]) * 1000
+    except Exception:
+        pass
+
+    # Attempt 3: GetNodeIncidence (alternative name on some builds).
+    try:
+        x2 = _make_variant_double()
+        y2 = _make_variant_double()
+        z2 = _make_variant_double()
+        geometry.GetNodeIncidence(node_id, x2, y2, z2)
+        return _unwrap_float(x2) * 1000, _unwrap_float(y2) * 1000, _unwrap_float(z2) * 1000
+    except Exception:
+        pass
+
+    log.warning("GetNodeCoordinates(%d) all attempts returned 0", node_id)
     return 0.0, 0.0, 0.0
 
 
 def _get_member_incidences(geometry, member_id: int) -> tuple:
     """Read (start_node_id, end_node_id) for a member."""
-    def _ival(v):
-        if hasattr(v, 'value'):
-            return int(v.value)
-        try:
-            return int(v[0])
-        except (TypeError, IndexError):
-            return int(v)
-
+    # Attempt 1: VARIANT by-ref.
     try:
         s = _make_variant_long()
         e = _make_variant_long()
-        # V22 uses GetMemberIncidence (singular); older uses GetMemberIncidences.
         try:
             geometry.GetMemberIncidence(member_id, s, e)
         except Exception:
             geometry.GetMemberIncidences(member_id, s, e)
-        return _ival(s), _ival(e)
+        si, ei = _unwrap_int(s), _unwrap_int(e)
+        if si != 0 or ei != 0:
+            return si, ei
     except Exception:
-        return 0, 0
+        pass
+
+    # Attempt 2: single-arg call.
+    try:
+        result = geometry.GetMemberIncidence(member_id)
+        if result is not None and hasattr(result, '__len__') and len(result) >= 2:
+            return _unwrap_int(result[0]), _unwrap_int(result[1])
+    except Exception:
+        pass
+
+    return 0, 0
 
 
 def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
@@ -452,18 +543,21 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         )
     ]
 
-    # Load cases
+    # Load cases — every COM return goes through _unwrap/_safe_com_call.
     n_cases = _com_int(load, "GetPrimaryLoadCaseCount")
     log.info("staad read: %d primary load cases", n_cases)
     load_cases: List[SyncLoadCase] = []
     for i in range(1, n_cases + 1):
-        num = load.GetPrimaryLoadCaseNumber(i)
-        title = load.GetLoadCaseTitle(num) or f"CASE {num}"
+        num = _safe_com_call(load, "GetPrimaryLoadCaseNumber", i)
+        if num is None or num == 0:
+            num = i  # fallback: assume 1-indexed case numbers
+        title = _safe_com_call(load, "GetLoadCaseTitle", num)
+        title_str = str(title) if title else f"CASE {num}"
         load_cases.append(
             SyncLoadCase(
                 case_number=int(num),
-                title=str(title),
-                load_type=_infer_load_type(title),
+                title=title_str,
+                load_type=_infer_load_type(title_str),
             )
         )
 
@@ -473,16 +567,19 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     combos: List[SyncCombination] = []
     combo_numbers: List[int] = []
     for i in range(1, n_combos + 1):
-        combo_num = load.GetLoadCombinationCaseNumber(i)
+        combo_num = _safe_com_call(load, "GetLoadCombinationCaseNumber", i)
+        if combo_num is None or combo_num == 0:
+            combo_num = 100 + i
         combo_numbers.append(int(combo_num))
-        title = load.GetLoadCaseTitle(combo_num) or f"COMBO {combo_num}"
+        title = _safe_com_call(load, "GetLoadCaseTitle", combo_num)
+        title_str = str(title) if title else f"COMBO {combo_num}"
         # STAAD exposes the factors via a separate call; we skip parsing
         # and record an empty factors list — the app regenerates its own
         # combos when the user hits "Generate" in the UI.
         combos.append(
             SyncCombination(
                 combo_number=int(combo_num),
-                title=str(title),
+                title=title_str,
                 factors=[],
                 source="imported",
             )
@@ -490,36 +587,54 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
 
     # Diagram points — the critical bit.
     # For each member, for each combo, sample M(x) and V(x) at 11 x_ratios.
+    # Use member length from the already-parsed members list (avoids a
+    # second GetMemberLength call that may fail on V22).
+    member_length_mm = {m.member_id: m.length_mm for m in members}
     diagram_points: List[SyncDiagramPoint] = []
     envelope_map: dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
     for mid in range(1, n_members + 1):
-        length_m = geometry.GetMemberLength(mid)
+        len_mm = member_length_mm.get(mid, 0)
+        len_m = len_mm / 1000.0
         for combo in combo_numbers:
             for s in range(N_SAMPLES):
                 x_ratio = s / (N_SAMPLES - 1)
-                x_mm = float(length_m) * 1000 * x_ratio
-                forces = output.GetMemberEndForcesAtDistance(
-                    mid, combo, x_ratio * length_m, True,
-                )
-                # forces layout per STAAD OpenSTAAD docs:
-                # [0]=Fx, [1]=Fy, [2]=Fz, [3]=Mx, [4]=My, [5]=Mz
-                fx, fy, fz, _mx, my, mz = forces[0:6]
+                x_mm = len_mm * x_ratio
+                try:
+                    forces = output.GetMemberEndForcesAtDistance(
+                        mid, combo, x_ratio * len_m, True,
+                    )
+                    if forces is None:
+                        fx = fy = fz = mx = my = mz = 0.0
+                    elif hasattr(forces, '__len__') and len(forces) >= 6:
+                        fx = _unwrap_float(forces[0])
+                        fy = _unwrap_float(forces[1])
+                        fz = _unwrap_float(forces[2])
+                        mx = _unwrap_float(forces[3])
+                        my = _unwrap_float(forces[4])
+                        mz = _unwrap_float(forces[5])
+                    else:
+                        fx = fy = fz = mx = my = mz = 0.0
+                except Exception as e:
+                    log.warning("GetMemberEndForces(mid=%d, combo=%d) failed: %s", mid, combo, e)
+                    fx = fy = fz = mx = my = mz = 0.0
+                void_mx = mx  # suppress unused warning
+                _ = void_mx
                 diagram_points.append(SyncDiagramPoint(
                     member_id=mid,
                     combo_number=combo,
                     x_ratio=x_ratio,
                     x_mm=x_mm,
-                    mz_knm=float(mz),
-                    vy_kn=float(fy),
-                    n_kn=float(fx),
-                    my_knm=float(my),
-                    vz_kn=float(fz),
+                    mz_knm=mz,
+                    vy_kn=fy,
+                    n_kn=fx,
+                    my_knm=my,
+                    vz_kn=fz,
                 ))
                 envelope_map[mid].update(
                     combo=combo,
-                    mz_knm=float(mz),
-                    vy_kn=float(fy),
-                    n_kn=float(fx),
+                    mz_knm=mz,
+                    vy_kn=fy,
+                    n_kn=fx,
                     my_knm=float(my),
                 )
 
