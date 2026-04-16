@@ -183,6 +183,142 @@ def _com_int(obj, name: str) -> int:
         raise StaadError(f"{name} returned non-integer ({result!r}): {e}") from e
 
 
+def _com_float_or_call(obj, name: str, *args) -> float:
+    """Call a COM method that returns a float, handling property-vs-method."""
+    try:
+        result = getattr(obj, name)(*args)
+    except TypeError:
+        result = getattr(obj, name)
+    if result is None:
+        return 0.0
+    return float(result)
+
+
+def _safe_str(obj, name: str, *args) -> str:
+    """Call a COM method that returns a string; returns '' on failure."""
+    try:
+        result = getattr(obj, name)(*args)
+        return str(result) if result else ""
+    except Exception:
+        return ""
+
+
+def _make_variant_double():
+    """Create a VARIANT by-ref double (VT_R8) for COM output params.
+
+    Pattern from the official OpenSTAAD Python library:
+      safe_array → VARIANT(VT_BYREF | VT_R8) → pass to COM → read [0].
+    """
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+    sa = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0])
+    return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, sa)
+
+
+def _make_variant_long():
+    """Create a VARIANT by-ref long (VT_I4) for COM output params."""
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+    sa = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0])
+    return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, sa)
+
+
+def _flag_geometry_methods(geometry) -> None:
+    """Call _FlagAsMethod on all geometry methods we use.
+
+    win32com needs this to distinguish COM methods from properties.
+    Without it, `geometry.GetNodeCoordinates(...)` is interpreted as a
+    property access and the output params never get filled. The official
+    OpenStaadPython library does this in Geometry.__init__.
+    """
+    methods = [
+        "GetNodeCount",
+        "GetMemberCount",
+        "GetNodeCoordinates",
+        "GetMemberIncidence",
+        "GetMemberIncidences",
+        "GetMemberLength",
+        "GetNodeCoordinates",
+        "GetSupportType",
+        "GetMemberSupportNodes",
+    ]
+    for name in methods:
+        try:
+            geometry._FlagAsMethod(name)
+        except Exception:
+            pass  # method doesn't exist on this COM version — skip
+
+
+def _flag_property_methods(property_obj) -> None:
+    methods = ["GetBeamSectionName", "GetBeamSectionWidth", "GetBeamSectionDepth"]
+    for name in methods:
+        try:
+            property_obj._FlagAsMethod(name)
+        except Exception:
+            pass
+
+
+def _flag_load_methods(load_obj) -> None:
+    methods = [
+        "GetPrimaryLoadCaseCount", "GetPrimaryLoadCaseNumber",
+        "GetLoadCaseTitle", "GetLoadCombinationCaseCount",
+        "GetLoadCombinationCaseNumber",
+    ]
+    for name in methods:
+        try:
+            load_obj._FlagAsMethod(name)
+        except Exception:
+            pass
+
+
+def _flag_output_methods(output_obj) -> None:
+    methods = [
+        "GetMemberEndForcesAtDistance", "GetSupportReactions",
+        "GetMemberEndForces",
+    ]
+    for name in methods:
+        try:
+            output_obj._FlagAsMethod(name)
+        except Exception:
+            pass
+
+
+def _get_node_coords(geometry, node_id: int) -> tuple:
+    """Read (x_mm, y_mm, z_mm) for a node using the VARIANT by-ref
+    pattern from the official OpenSTAAD Python library.
+
+    Coordinates come back in the STAAD unit system (typically metres
+    for metric models); we convert to mm.
+    """
+    import logging
+    log = logging.getLogger("staad-bridge")
+
+    try:
+        x = _make_variant_double()
+        y = _make_variant_double()
+        z = _make_variant_double()
+        geometry.GetNodeCoordinates(node_id, x, y, z)
+        return float(x[0]) * 1000, float(y[0]) * 1000, float(z[0]) * 1000
+    except Exception as e:
+        log.warning("GetNodeCoordinates(%d) failed: %s", node_id, e)
+    return 0.0, 0.0, 0.0
+
+
+def _get_member_incidences(geometry, member_id: int) -> tuple:
+    """Read (start_node_id, end_node_id) for a member."""
+    try:
+        s = _make_variant_long()
+        e = _make_variant_long()
+        # V22 uses GetMemberIncidence (singular); older uses GetMemberIncidences.
+        try:
+            geometry.GetMemberIncidence(member_id, s, e)
+        except Exception:
+            geometry.GetMemberIncidences(member_id, s, e)
+        return int(s[0]), int(e[0])
+    except Exception:
+        return 0, 0
+
+
 def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     import logging
     log = logging.getLogger("staad-bridge")
@@ -201,6 +337,13 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             f"check that a model is currently open in STAAD."
         ) from e
 
+    # Tell win32com which attributes are callable methods, not properties.
+    # Without this, V22 CONNECT returns None for output-param methods.
+    _flag_geometry_methods(geometry)
+    _flag_property_methods(property_)
+    _flag_load_methods(load)
+    _flag_output_methods(output)
+
     # Nodes
     try:
         n_nodes = _com_int(geometry, "GetNodeCount")
@@ -216,15 +359,13 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
 
     nodes: List[SyncNode] = []
     for i in range(1, n_nodes + 1):
-        x = y = z = 0.0
-        x, y, z = geometry.GetNodeCoordinates(i, x, y, z)
-        # x/y/z come back in the STAAD unit system. We assume metres → mm.
+        x_mm, y_mm, z_mm = _get_node_coords(geometry, i)
         nodes.append(
             SyncNode(
                 node_id=i,
-                x_mm=float(x) * 1000,
-                y_mm=float(y) * 1000,
-                z_mm=float(z) * 1000,
+                x_mm=x_mm,
+                y_mm=y_mm,
+                z_mm=z_mm,
                 support_type=_support_type_for_node(geometry, i),
             )
         )
@@ -234,15 +375,14 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     log.info("staad read: %d members", n_members)
     members: List[SyncMember] = []
     for i in range(1, n_members + 1):
-        start = end = 0
-        start, end = geometry.GetMemberIncidences(i, start, end)
-        length_m = geometry.GetMemberLength(i)
-        section_name = property_.GetBeamSectionName(i) or f"SECTION-{i}"
+        start_id, end_id = _get_member_incidences(geometry, i)
+        length_m = _com_float_or_call(geometry, "GetMemberLength", i)
+        section_name = _safe_str(property_, "GetBeamSectionName", i) or f"SECTION-{i}"
         members.append(
             SyncMember(
                 member_id=i,
-                start_node_id=int(start),
-                end_node_id=int(end),
+                start_node_id=start_id,
+                end_node_id=end_id,
                 section_name=section_name,
                 length_mm=float(length_m) * 1000,
                 beta_angle_deg=0.0,
