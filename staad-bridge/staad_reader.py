@@ -669,6 +669,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 title=title_str,
                 load_type=_infer_load_type(title_str),
             )
+        )
 
     # Combinations — same pattern: one plural array-filling call.
     n_combos = _com_int(load, "GetLoadCombinationCaseCount")
@@ -692,6 +693,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 factors=[],
                 source="imported",
             )
+        )
 
     # Diagram points — the critical bit.
     # For each member, for each combo, sample M(x) and V(x) at 11 x_ratios.
