@@ -614,6 +614,19 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             log.info("member %d length from node coords: %.0f mm", i, length_mm)
 
         section_name = _safe_str(property_, "GetBeamSectionName", i) or f"SECTION-{i}"
+        a = node_coords.get(start_id, (0, 0, 0))
+        b = node_coords.get(end_id, (0, 0, 0))
+        dx = abs(b[0] - a[0])
+        dy = abs(b[1] - a[1])
+        dz = abs(b[2] - a[2])
+        if dy > max(dx, dz) and dy > 0:
+            member_type = "column"
+        else:
+            member_type = "beam"
+        log.info(
+            "member %d: nodes=(%d,%d) d=(%.0f,%.0f,%.0f) type=%s",
+            i, start_id, end_id, dx, dy, dz, member_type,
+        )
         members.append(
             SyncMember(
                 member_id=i,
@@ -622,7 +635,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 section_name=section_name,
                 length_mm=length_mm,
                 beta_angle_deg=0.0,
-                member_type=_infer_member_type(geometry, i),
+                member_type=member_type,
             )
         )
 
