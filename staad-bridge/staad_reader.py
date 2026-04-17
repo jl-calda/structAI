@@ -292,20 +292,53 @@ def _make_variant_long():
     return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, sa)
 
 
+def _make_variant_double_array(n: int):
+    """By-ref VARIANT holding an n-element double array for COM output
+    params like `pdForces` in GetIntermediateMemberForcesAtDistance."""
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+    sa = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0] * n)
+    return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, sa)
+
+
+def _make_variant_long_array(n: int):
+    """By-ref VARIANT holding an n-element long array for output params
+    like `lCases` in GetPrimaryLoadCaseNumbers."""
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+    sa = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0] * n)
+    return win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, sa)
+
+
+def _variant_to_list(v) -> list:
+    """Extract a list from a by-ref VARIANT output. V22 returns VARIANT
+    objects with `.value`; older builds return raw tuples."""
+    if hasattr(v, "value"):
+        val = v.value
+    else:
+        val = v
+    if val is None:
+        return []
+    try:
+        return list(val)
+    except TypeError:
+        return [val]
+
+
 def _flag_geometry_methods(geometry) -> None:
-    """Call _FlagAsMethod on all geometry methods we use."""
+    """Call _FlagAsMethod on all geometry methods we use.
+
+    Names must match the OpenSTAAD COM API exactly. See
+    docs/openstaad/OSAPP/class_o_s_geometry_u_i.html.
+    """
     methods = [
         "GetNodeCount",
         "GetMemberCount",
         "GetNodeCoordinates",
         "GetMemberIncidence",
-        "GetMemberIncidences",
-        "GetMemberLength",
         "GetBeamLength",
-        "GetSupportType",
-        "GetMemberSupportNodes",
         "GetNodeList",
-        "GetMemberList",
+        "GetBeamList",
     ]
     for name in methods:
         try:
@@ -314,8 +347,20 @@ def _flag_geometry_methods(geometry) -> None:
             pass  # method doesn't exist on this COM version — skip
 
 
+def _flag_support_methods(support_obj) -> None:
+    methods = ["GetSupportType", "GetSupportCount", "GetSupportNodes"]
+    for name in methods:
+        try:
+            support_obj._FlagAsMethod(name)
+        except Exception:
+            pass
+
+
 def _flag_property_methods(property_obj) -> None:
-    methods = ["GetBeamSectionName", "GetBeamSectionWidth", "GetBeamSectionDepth"]
+    # GetBeamSectionWidth/GetBeamSectionDepth are not in OpenSTAAD — flag
+    # only methods that actually exist. Section dims come from the
+    # property-values call (best-effort; optional in the payload).
+    methods = ["GetBeamSectionName", "GetSectionPropertyValues"]
     for name in methods:
         try:
             property_obj._FlagAsMethod(name)
@@ -324,10 +369,12 @@ def _flag_property_methods(property_obj) -> None:
 
 
 def _flag_load_methods(load_obj) -> None:
+    # OpenSTAAD exposes plural ...Numbers methods that fill a by-ref array;
+    # there is no singular per-index accessor.
     methods = [
-        "GetPrimaryLoadCaseCount", "GetPrimaryLoadCaseNumber",
+        "GetPrimaryLoadCaseCount", "GetPrimaryLoadCaseNumbers",
         "GetLoadCaseTitle", "GetLoadCombinationCaseCount",
-        "GetLoadCombinationCaseNumber",
+        "GetLoadCombinationCaseNumbers",
     ]
     for name in methods:
         try:
@@ -337,8 +384,10 @@ def _flag_load_methods(load_obj) -> None:
 
 
 def _flag_output_methods(output_obj) -> None:
+    # Per-section forces come from GetIntermediateMemberForcesAtDistance;
+    # GetMemberEndForcesAtDistance is not an OpenSTAAD method.
     methods = [
-        "GetMemberEndForcesAtDistance", "GetSupportReactions",
+        "GetIntermediateMemberForcesAtDistance", "GetSupportReactions",
         "GetMemberEndForces",
     ]
     for name in methods:
@@ -437,15 +486,17 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         property_ = staad.Property
         load = staad.Load
         output = staad.Output
+        support = staad.Support  # GetSupportType lives here, not on Geometry
     except Exception as e:
         raise StaadError(
-            f"Could not access Geometry/Property/Load/Output on the STAAD COM "
-            f"object. Underlying error: {e}. If you're on STAAD CONNECT V22, "
-            f"check that a model is currently open in STAAD."
+            f"Could not access Geometry/Property/Load/Output/Support on the "
+            f"STAAD COM object. Underlying error: {e}. If you're on STAAD "
+            f"CONNECT V22, check that a model is currently open in STAAD."
         ) from e
 
     # Tell win32com which attributes are callable methods, not properties.
     _flag_geometry_methods(geometry)
+    _flag_support_methods(support)
     _flag_property_methods(property_)
     _flag_load_methods(load)
     _flag_output_methods(output)
@@ -472,7 +523,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 x_mm=x_mm,
                 y_mm=y_mm,
                 z_mm=z_mm,
-                support_type=_support_type_for_node(geometry, i),
+                support_type=_support_type_for_node(support, i),
             )
         )
 
@@ -486,17 +537,15 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     for i in range(1, n_members + 1):
         start_id, end_id = _get_member_incidences(geometry, i)
 
-        # Try GetMemberLength / GetBeamLength; fall back to Euclidean
-        # distance between start and end nodes (already in mm).
+        # GetBeamLength is the only length accessor in OpenSTAAD's Geometry
+        # class; fall back to Euclidean distance between start/end nodes.
         length_mm = 0.0
-        for method_name in ("GetMemberLength", "GetBeamLength"):
-            try:
-                val = _com_float_or_call(geometry, method_name, i)
-                if val > 0:
-                    length_mm = val * 1000  # metres → mm
-                    break
-            except Exception:
-                continue
+        try:
+            val = _com_float_or_call(geometry, "GetBeamLength", i)
+            if val > 0:
+                length_mm = val * 1000  # metres → mm
+        except Exception:
+            pass
         if length_mm <= 0:
             a = node_coords.get(start_id, (0, 0, 0))
             b = node_coords.get(end_id, (0, 0, 0))
@@ -559,9 +608,8 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 title=title_str,
                 load_type=_infer_load_type(title_str),
             )
-        )
 
-    # Combinations
+    # Combinations — same pattern: one plural array-filling call.
     n_combos = _com_int(load, "GetLoadCombinationCaseCount")
     log.info("staad read: %d combinations", n_combos)
     combos: List[SyncCombination] = []
@@ -583,7 +631,6 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 factors=[],
                 source="imported",
             )
-        )
 
     # Diagram points — the critical bit.
     # For each member, for each combo, sample M(x) and V(x) at 11 x_ratios.
@@ -640,15 +687,24 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
 
     envelope = [acc.to_row(mid) for mid, acc in envelope_map.items()]
 
-    # Reactions
+    # Reactions — GetSupportReactions(nNodeNo, nLC, pdReactions) uses the
+    # same by-ref 6-element output-array pattern as the forces call.
     reactions: List[SyncReaction] = []
     support_nodes = [n.node_id for n in nodes if n.support_type is not None]
     for node in support_nodes:
         for combo in combo_numbers:
-            rx = ry = rz = mx = my = mz = 0.0
-            r = output.GetSupportReactions(node, combo)
-            if r and len(r) >= 6:
-                rx, ry, rz, mx, my, mz = r[0:6]
+            pd_reactions = _make_variant_double_array(6)
+            try:
+                output.GetSupportReactions(node, combo, pd_reactions)
+            except Exception as e:
+                log.warning(
+                    "GetSupportReactions(node=%d, lc=%d): %s", node, combo, e,
+                )
+                continue
+            r = _variant_to_list(pd_reactions)
+            if len(r) < 6:
+                r = list(r) + [0.0] * (6 - len(r))
+            rx, ry, rz, mx, my, mz = r[0:6]
             reactions.append(SyncReaction(
                 node_id=int(node),
                 combo_number=int(combo),
@@ -896,40 +952,54 @@ class _EnvelopeAcc:
         )
 
 
-def _support_type_for_node(geometry, node_id: int) -> Optional[str]:
-    """Best-effort read of support type from STAAD geometry COM."""
+def _support_type_for_node(support, node_id: int) -> Optional[str]:
+    """Best-effort read of support type from OSSupportUI.GetSupportType.
+
+    Per OpenSTAAD docs this method lives on the Support COM object, NOT on
+    Geometry. Returns None for unsupported nodes (docs: "returns 0 if node
+    is not a support node")."""
     try:
-        code = geometry.GetSupportType(node_id)
+        code = support.GetSupportType(node_id)
     except Exception:
         return None
     if code is None:
         return None
-    code_int = int(code)
+    try:
+        code_int = int(code)
+    except (TypeError, ValueError):
+        return None
     if code_int == 1:
-        return "fixed"
-    if code_int == 2:
         return "pinned"
+    if code_int == 2:
+        return "fixed"
+    if code_int == 3:
+        return "fixed"  # FixedBut — fixed with directional releases
+    if code_int in (11, 12, 13):
+        return "fixed" if code_int >= 12 else "pinned"
     return None
 
 
 def _section_dims(property_, section_name: str) -> dict:
-    """Read b/h/area from STAAD where possible. Everything optional."""
-    try:
-        b = float(property_.GetBeamSectionWidth(section_name)) * 1000
-        h = float(property_.GetBeamSectionDepth(section_name)) * 1000
-        return {"b_mm": b, "h_mm": h, "area_mm2": b * h}
-    except Exception:
-        return {"b_mm": None, "h_mm": None, "area_mm2": None}
+    """Section b/h/area are optional in the payload. OpenSTAAD has no
+    per-name width/depth accessor; GetSectionPropertyValues could be used
+    but requires resolving the section reference number first. Left as a
+    best-effort stub — the app side treats these as optional."""
+    return {"b_mm": None, "h_mm": None, "area_mm2": None}
 
 
 def _infer_member_type(geometry, member_id: int) -> str:
-    """Call the member a beam if it's more horizontal than vertical, else column."""
+    """Call the member a beam if it's more horizontal than vertical, else column.
+
+    Uses the same VARIANT by-ref helpers as the rest of the reader — the
+    previous implementation passed plain Python ints to COM by-ref slots
+    and always raised, defaulting every member to 'other'.
+    """
     try:
-        start = end = 0
-        start, end = geometry.GetMemberIncidences(member_id, start, end)
-        x1 = y1 = z1 = x2 = y2 = z2 = 0.0
-        x1, y1, z1 = geometry.GetNodeCoordinates(start, x1, y1, z1)
-        x2, y2, z2 = geometry.GetNodeCoordinates(end, x2, y2, z2)
+        start, end = _get_member_incidences(geometry, member_id)
+        if start <= 0 or end <= 0:
+            return "other"
+        x1, y1, z1 = _get_node_coords(geometry, start)
+        x2, y2, z2 = _get_node_coords(geometry, end)
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
         dz = abs(z2 - z1)
