@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
 import { RunSlabButton } from '@/components/slabs/RunSlabButton'
 import { Tag } from '@/components/ui/Tag'
 import { getSlabDesign } from '@/lib/data/slabs'
@@ -17,6 +18,7 @@ export default async function SlabDesignPage({
   const { design, rebar, checks } = result
 
   return (
+    <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
@@ -123,6 +125,7 @@ export default async function SlabDesignPage({
         </div>
       )}
     </div>
+    </DesignErrorBoundary>
   )
 }
 

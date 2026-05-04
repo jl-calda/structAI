@@ -19,6 +19,7 @@ import { fail, ok } from '@/lib/api/response'
 import '@/lib/engineering/codes/aci318-19' // side-effect register
 import '@/lib/engineering/codes/nscp2015'  // side-effect register
 import { getCode } from '@/lib/engineering/codes'
+import { synthesizeDiagram } from '@/lib/engineering/concrete/beam/diagram-synthesizer'
 import {
   runBeamGroupDesign,
   type BeamGroupInput,
@@ -31,6 +32,7 @@ import type {
   BeamStirrupZone,
   BeamTensionLayer,
   CodeStandard,
+  SupportCondition,
 } from '@/lib/supabase/types'
 
 export const runtime = 'nodejs'
@@ -86,37 +88,32 @@ export async function POST(request: NextRequest) {
     return fail('some beam_design_ids not found in project', 404)
   }
 
-  // 3. Diagram points for every member referenced by the group.
+  // 3. Diagram points — STAAD-linked beams stitch from staad_diagram_points;
+  //    standalone beams synthesize from manual load inputs.
+  const staadDesigns = designs.filter((d) => d.member_ids.length > 0)
   const allMemberIds = Array.from(
-    new Set(designs.flatMap((d) => d.member_ids)),
+    new Set(staadDesigns.flatMap((d) => d.member_ids)),
   )
-  const { data: points, error: pErr } = await supabase
-    .from('staad_diagram_points')
-    .select('member_id, combo_number, x_ratio, x_mm, mz_knm, vy_kn')
-    .eq('project_id', body.project_id)
-    .in('member_id', allMemberIds)
-  if (pErr) return fail(`diagram_points: ${pErr.message}`, 500)
 
-  // Group per member.
   const byMember = new Map<
     number,
-    {
-      combo_number: number
-      x_ratio: number
-      x_mm: number
-      mz_knm: number
-      vy_kn: number
-    }[]
+    { combo_number: number; x_ratio: number; x_mm: number; mz_knm: number; vy_kn: number }[]
   >()
-  for (const p of points ?? []) {
-    const arr = byMember.get(p.member_id) ?? []
-    arr.push(p)
-    byMember.set(p.member_id, arr)
-  }
-
-  // Stitch each beam's diagram end-to-end.
   const memberLengths = new Map<number, number>()
-  {
+
+  if (allMemberIds.length > 0) {
+    const { data: points, error: pErr } = await supabase
+      .from('staad_diagram_points')
+      .select('member_id, combo_number, x_ratio, x_mm, mz_knm, vy_kn')
+      .eq('project_id', body.project_id)
+      .in('member_id', allMemberIds)
+    if (pErr) return fail(`diagram_points: ${pErr.message}`, 500)
+    for (const p of points ?? []) {
+      const arr = byMember.get(p.member_id) ?? []
+      arr.push(p)
+      byMember.set(p.member_id, arr)
+    }
+
     const { data: members, error: mErr } = await supabase
       .from('staad_members')
       .select('member_id, length_mm')
@@ -127,24 +124,44 @@ export async function POST(request: NextRequest) {
   }
 
   const beams: BeamInput[] = designs.map((d) => {
-    const memberLens = d.member_ids.map((id) => memberLengths.get(id) ?? 0)
-    const total_span_mm = memberLens.reduce((a, b) => a + b, 0)
+    let diagram: BeamDiagramSample[]
+    let memberLens: number[]
+    let total_span_mm: number
 
-    const diagram: BeamDiagramSample[] = []
-    let offset = 0
-    for (let i = 0; i < d.member_ids.length; i++) {
-      const id = d.member_ids[i]
-      const len = memberLens[i]
-      const memberPoints = byMember.get(id) ?? []
-      for (const p of memberPoints) {
-        diagram.push({
-          x_mm: offset + p.x_ratio * len,
-          Mz_kNm: p.mz_knm,
-          Vy_kN: p.vy_kn,
-          combo_number: p.combo_number,
+    if (d.member_ids.length === 0) {
+      total_span_mm = d.total_span_mm
+      memberLens = [total_span_mm]
+      const wu = d.manual_wu_kn_m ?? 0
+      const pu = d.manual_pu_mid_kn ?? 0
+      if (wu <= 0 && pu <= 0) {
+        diagram = []
+      } else {
+        diagram = synthesizeDiagram({
+          span_mm: total_span_mm,
+          wu_kn_m: wu,
+          pu_mid_kn: pu,
+          support: (d.support_condition ?? 'simply_supported') as SupportCondition,
         })
       }
-      offset += len
+    } else {
+      memberLens = d.member_ids.map((id) => memberLengths.get(id) ?? 0)
+      total_span_mm = memberLens.reduce((a, b) => a + b, 0)
+      diagram = []
+      let offset = 0
+      for (let i = 0; i < d.member_ids.length; i++) {
+        const id = d.member_ids[i]
+        const len = memberLens[i]
+        const memberPoints = byMember.get(id) ?? []
+        for (const p of memberPoints) {
+          diagram.push({
+            x_mm: offset + p.x_ratio * len,
+            Mz_kNm: p.mz_knm,
+            Vy_kN: p.vy_kn,
+            combo_number: p.combo_number,
+          })
+        }
+        offset += len
+      }
     }
 
     return {
@@ -155,7 +172,7 @@ export async function POST(request: NextRequest) {
       geom: {
         b_mm: d.b_mm,
         h_mm: d.h_mm,
-        d_mm: d.h_mm - d.clear_cover_mm - 25, // rough — caller may refine
+        d_mm: d.h_mm - d.clear_cover_mm - 25,
         clear_cover_mm: d.clear_cover_mm,
       },
       mat: {

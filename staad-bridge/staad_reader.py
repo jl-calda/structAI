@@ -471,6 +471,67 @@ def _get_member_incidences(geometry, member_id: int) -> tuple:
     return 0, 0
 
 
+class _EnvelopeAcc:
+    def __init__(self) -> None:
+        self.mpos = 0.0
+        self.mpos_combo: Optional[int] = None
+        self.mneg = 0.0
+        self.mneg_combo: Optional[int] = None
+        self.vu = 0.0
+        self.vu_combo: Optional[int] = None
+        self.nu_t = 0.0
+        self.nu_c = 0.0
+        self.mpos_minor = 0.0
+        self.mpos_combo_minor: Optional[int] = None
+        self.mneg_minor = 0.0
+        self.mneg_combo_minor: Optional[int] = None
+
+    def update(
+        self,
+        *,
+        combo: int,
+        mz_knm: float,
+        vy_kn: float,
+        n_kn: float,
+        my_knm: float = 0.0,
+    ) -> None:
+        if mz_knm > self.mpos:
+            self.mpos, self.mpos_combo = mz_knm, combo
+        neg_mag = -mz_knm if mz_knm < 0 else 0
+        if neg_mag > self.mneg:
+            self.mneg, self.mneg_combo = neg_mag, combo
+        v_mag = abs(vy_kn)
+        if v_mag > self.vu:
+            self.vu, self.vu_combo = v_mag, combo
+        if n_kn > self.nu_t:
+            self.nu_t = n_kn
+        comp_mag = -n_kn if n_kn < 0 else 0
+        if comp_mag > self.nu_c:
+            self.nu_c = comp_mag
+        if my_knm > self.mpos_minor:
+            self.mpos_minor, self.mpos_combo_minor = my_knm, combo
+        my_neg_mag = -my_knm if my_knm < 0 else 0
+        if my_neg_mag > self.mneg_minor:
+            self.mneg_minor, self.mneg_combo_minor = my_neg_mag, combo
+
+    def to_row(self, mid: int) -> SyncEnvelope:
+        return SyncEnvelope(
+            member_id=mid,
+            mpos_max_knm=self.mpos,
+            mpos_combo=self.mpos_combo,
+            mneg_max_knm=self.mneg,
+            mneg_combo=self.mneg_combo,
+            vu_max_kn=self.vu,
+            vu_combo=self.vu_combo,
+            nu_tension_max_kn=self.nu_t,
+            nu_compression_max_kn=self.nu_c,
+            mpos_max_minor_knm=self.mpos_minor,
+            mpos_combo_minor=self.mpos_combo_minor,
+            mneg_max_minor_knm=self.mneg_minor,
+            mneg_combo_minor=self.mneg_combo_minor,
+        )
+
+
 def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     import logging
     log = logging.getLogger("staad-bridge")
@@ -500,6 +561,9 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     _flag_property_methods(property_)
     _flag_load_methods(load)
     _flag_output_methods(output)
+
+    # Detect the unit system STAAD is currently using.
+    unit_system = _detect_unit_system(staad, log)
 
     # Nodes
     try:
@@ -553,6 +617,19 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             log.info("member %d length from node coords: %.0f mm", i, length_mm)
 
         section_name = _safe_str(property_, "GetBeamSectionName", i) or f"SECTION-{i}"
+        a = node_coords.get(start_id, (0, 0, 0))
+        b = node_coords.get(end_id, (0, 0, 0))
+        dx = abs(b[0] - a[0])
+        dy = abs(b[1] - a[1])
+        dz = abs(b[2] - a[2])
+        if dy > max(dx, dz) and dy > 0:
+            member_type = "column"
+        else:
+            member_type = "beam"
+        log.info(
+            "member %d: nodes=(%d,%d) d=(%.0f,%.0f,%.0f) type=%s",
+            i, start_id, end_id, dx, dy, dz, member_type,
+        )
         members.append(
             SyncMember(
                 member_id=i,
@@ -561,7 +638,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 section_name=section_name,
                 length_mm=length_mm,
                 beta_angle_deg=0.0,
-                member_type=_infer_member_type(geometry, i),
+                member_type=member_type,
             )
         )
 
@@ -608,6 +685,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 title=title_str,
                 load_type=_infer_load_type(title_str),
             )
+        )
 
     # Combinations — same pattern: one plural array-filling call.
     n_combos = _com_int(load, "GetLoadCombinationCaseCount")
@@ -631,6 +709,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 factors=[],
                 source="imported",
             )
+        )
 
     # Diagram points — the critical bit.
     # For each member, for each combo, sample M(x) and V(x) at 11 x_ratios.
@@ -638,7 +717,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     # second GetMemberLength call that may fail on V22).
     member_length_mm = {m.member_id: m.length_mm for m in members}
     diagram_points: List[SyncDiagramPoint] = []
-    envelope_map: dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
+    envelope_map: Dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
     for mid in range(1, n_members + 1):
         len_mm = member_length_mm.get(mid, 0)
         len_m = len_mm / 1000.0
@@ -720,6 +799,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         project_id=project_id,
         file_name=file_path.name,
         file_hash=file_sha256(file_path),
+        unit_system=unit_system,
         nodes=nodes,
         members=members,
         sections=sections,
@@ -730,6 +810,31 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         envelope=envelope,
         reactions=reactions,
     )
+
+
+def _detect_unit_system(staad, log) -> str:
+    """Read STAAD's current input units and return a canonical label.
+
+    OpenSTAAD exposes GetInputUnitForForce() and GetInputUnitForLength()
+    on the main object. Force codes: 0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS.
+    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm.
+    We combine them into a human-readable string like "kN-m" or "kip-ft".
+    """
+    force_labels = {0: "kN", 1: "kip", 2: "kg", 3: "MN", 4: "N", 5: "lbs", 6: "kN"}
+    length_labels = {0: "m", 1: "ft", 2: "mm", 3: "cm", 4: "in", 5: "dm"}
+
+    try:
+        force_code = _unwrap_int(_safe_com_call(staad, "GetInputUnitForForce"))
+        length_code = _unwrap_int(_safe_com_call(staad, "GetInputUnitForLength"))
+        force_str = force_labels.get(force_code, f"force-{force_code}")
+        length_str = length_labels.get(length_code, f"len-{length_code}")
+        result = f"{force_str}-{length_str}"
+        log.info("staad units: force=%s(%d) length=%s(%d) → %s",
+                 force_str, force_code, length_str, length_code, result)
+        return result
+    except Exception as e:
+        log.warning("could not detect STAAD unit system: %s", e)
+        return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -809,7 +914,7 @@ def _read_mock_model(project_id: str) -> SyncPayload:
 
     # Synthetic diagrams — parabolic M(x), linear V(x) per member.
     diagrams: List[SyncDiagramPoint] = []
-    envelope_map: dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
+    envelope_map: Dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
     for m in members:
         is_beam = m.member_type == "beam"
         for combo in [101, 102]:
@@ -852,6 +957,7 @@ def _read_mock_model(project_id: str) -> SyncPayload:
         project_id=project_id,
         file_name="MOCK-FRAME.std",
         file_hash=hashlib.sha256(hash_input.encode()).hexdigest(),
+        unit_system="kN-m",
         nodes=nodes,
         members=members,
         sections=sections,
@@ -889,67 +995,6 @@ def read_model(project_id: str, file_path: Optional[Path], mock: bool) -> SyncPa
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-class _EnvelopeAcc:
-    def __init__(self) -> None:
-        self.mpos = 0.0
-        self.mpos_combo: Optional[int] = None
-        self.mneg = 0.0
-        self.mneg_combo: Optional[int] = None
-        self.vu = 0.0
-        self.vu_combo: Optional[int] = None
-        self.nu_t = 0.0
-        self.nu_c = 0.0
-        # Minor-axis (My) peaks for the biaxial column path.
-        self.mpos_minor = 0.0
-        self.mpos_combo_minor: Optional[int] = None
-        self.mneg_minor = 0.0
-        self.mneg_combo_minor: Optional[int] = None
-
-    def update(
-        self,
-        *,
-        combo: int,
-        mz_knm: float,
-        vy_kn: float,
-        n_kn: float,
-        my_knm: float = 0.0,
-    ) -> None:
-        if mz_knm > self.mpos:
-            self.mpos, self.mpos_combo = mz_knm, combo
-        neg_mag = -mz_knm if mz_knm < 0 else 0
-        if neg_mag > self.mneg:
-            self.mneg, self.mneg_combo = neg_mag, combo
-        v_mag = abs(vy_kn)
-        if v_mag > self.vu:
-            self.vu, self.vu_combo = v_mag, combo
-        if n_kn > self.nu_t:
-            self.nu_t = n_kn
-        comp_mag = -n_kn if n_kn < 0 else 0
-        if comp_mag > self.nu_c:
-            self.nu_c = comp_mag
-        if my_knm > self.mpos_minor:
-            self.mpos_minor, self.mpos_combo_minor = my_knm, combo
-        my_neg_mag = -my_knm if my_knm < 0 else 0
-        if my_neg_mag > self.mneg_minor:
-            self.mneg_minor, self.mneg_combo_minor = my_neg_mag, combo
-
-    def to_row(self, mid: int) -> SyncEnvelope:
-        return SyncEnvelope(
-            member_id=mid,
-            mpos_max_knm=self.mpos,
-            mpos_combo=self.mpos_combo,
-            mneg_max_knm=self.mneg,
-            mneg_combo=self.mneg_combo,
-            vu_max_kn=self.vu,
-            vu_combo=self.vu_combo,
-            nu_tension_max_kn=self.nu_t,
-            nu_compression_max_kn=self.nu_c,
-            mpos_max_minor_knm=self.mpos_minor,
-            mpos_combo_minor=self.mpos_combo_minor,
-            mneg_max_minor_knm=self.mneg_minor,
-            mneg_combo_minor=self.mneg_combo_minor,
-        )
 
 
 def _support_type_for_node(support, node_id: int) -> Optional[str]:

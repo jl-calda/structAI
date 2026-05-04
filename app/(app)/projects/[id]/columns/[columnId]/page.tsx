@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
 import { ColumnCrossSection } from '@/components/columns/ColumnCrossSection'
 import { ColumnRebarEditor } from '@/components/columns/ColumnRebarEditor'
 import { PmDiagram } from '@/components/columns/PmDiagram'
@@ -53,6 +54,7 @@ export default async function ColumnDesignPage({
   )
 
   return (
+    <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
@@ -187,6 +189,7 @@ export default async function ColumnDesignPage({
         </div>
       </section>
     </div>
+    </DesignErrorBoundary>
   )
 }
 

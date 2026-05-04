@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
 import { BeamCrossSection } from '@/components/beams/BeamCrossSection'
 import { BeamElevation } from '@/components/beams/BeamElevation'
 import { BeamRebarEditor } from '@/components/beams/BeamRebarEditor'
@@ -40,6 +41,7 @@ export default async function BeamDesignPage({
     (rebar?.stirrup_zones as BeamStirrupZone[]) ?? []
 
   return (
+    <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
       {/* ── Header ─────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-baseline gap-3">
@@ -359,6 +361,7 @@ export default async function BeamDesignPage({
         </section>
       ) : null}
     </div>
+    </DesignErrorBoundary>
   )
 }
 

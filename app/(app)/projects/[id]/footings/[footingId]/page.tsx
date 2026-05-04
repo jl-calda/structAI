@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
 import { RunFootingButton } from '@/components/footings/RunFootingButton'
 import { Tag } from '@/components/ui/Tag'
 import { getColumnDesign } from '@/lib/data/columns'
@@ -21,6 +22,7 @@ export default async function FootingDesignPage({
     : null
 
   return (
+    <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
@@ -136,6 +138,7 @@ export default async function FootingDesignPage({
         </div>
       </section>
     </div>
+    </DesignErrorBoundary>
   )
 }
 

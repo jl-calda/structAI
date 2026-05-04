@@ -65,11 +65,9 @@ export async function POST(request: NextRequest) {
   if (dErr) return fail(`footing_designs: ${dErr.message}`, 500)
   if (!design) return fail('footing_design not found', 404)
 
-  // Resolve column dimensions (for bearing perimeter, flexure cantilever,
-  // and column-bearing check). If no linked column, assume a square stub
-  // based on √(Pu / qa) — conservative placeholder.
-  let col_b = 400
-  let col_h = 400
+  // Resolve column stub dimensions.
+  let col_b = design.col_b_mm ?? 400
+  let col_h = design.col_h_mm ?? 400
   if (design.column_design_id) {
     const { data: col, error: cErr } = await supabase
       .from('column_designs')
@@ -83,7 +81,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Demand — prefer linked column's governing Pu.
+  // Demand resolution: column_checks → staad_reactions → manual → fail.
   let Pu_kN = 0
   let Mu_kNm = 0
   let governing_combo: number | null = null
@@ -103,7 +101,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fall back to STAAD reactions at node_id.
   if (Pu_kN === 0 && design.node_id !== null) {
     const { data: rxs, error: rErr } = await supabase
       .from('staad_reactions')
@@ -120,8 +117,13 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (Pu_kN === 0 && design.manual_pu_kn != null && design.manual_pu_kn > 0) {
+    Pu_kN = design.manual_pu_kn
+    Mu_kNm = design.manual_mu_knm ?? 0
+  }
+
   if (Pu_kN <= 0)
-    return fail('No Pu source — link a column or set node_id + run a sync.', 400)
+    return fail('No Pu source — link a column, set node_id, or enter manual loads.', 400)
 
   const result = runFootingDesign({
     geom: {
