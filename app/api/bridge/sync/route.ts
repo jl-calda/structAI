@@ -47,6 +47,15 @@ export async function POST(request: NextRequest) {
     throw e
   }
 
+  const ACCEPTED_UNITS = new Set(['kN-m', 'kN-mm', 'unknown'])
+  if (!ACCEPTED_UNITS.has(payload.unit_system)) {
+    return fail(
+      `STAAD is using "${payload.unit_system}" units. StructAI requires kN-m. ` +
+      'In STAAD, go to File → Configure → Units and switch to kN-m, then re-sync.',
+      400,
+    )
+  }
+
   const supabase = createServiceClient()
 
   // 1. Detect hash mismatch against the most recent sync for this project.
@@ -106,6 +115,7 @@ export async function POST(request: NextRequest) {
       project_id: payload.project_id,
       file_name: payload.file_name,
       file_hash: payload.file_hash,
+      unit_system: payload.unit_system,
       status: 'ok',
       node_count: payload.nodes.length,
       member_count: payload.members.length,

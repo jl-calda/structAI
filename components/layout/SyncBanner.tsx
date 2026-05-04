@@ -82,10 +82,12 @@ function BannerText({ latest, tone }: { latest: LatestSync; tone: Tone }) {
     )
   }
 
+  const units = latest.row.unit_system ?? 'unknown'
   return (
     <span className="flex flex-wrap items-center gap-x-3">
       <span>STAAD connected</span>
       <span className="mono">{latest.row.file_name}</span>
+      <span>· Units <span className="mono">{units}</span></span>
       <span>· Last sync <span className="mono">{latest.row.synced_at.slice(0, 19).replace('T', ' ')}</span></span>
       <span>· Hash <span className="mono">{shortHash(latest.row.file_hash)}</span></span>
     </span>

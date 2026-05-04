@@ -109,6 +109,7 @@ export type SyncPayload = {
   project_id: string
   file_name: string
   file_hash: string
+  unit_system: string
   nodes: SyncNode[]
   members: SyncMember[]
   sections: SyncSection[]
@@ -162,6 +163,8 @@ export function parseSyncPayload(body: unknown): SyncPayload {
   assert(isStr(body.file_name), 'file_name must be a string')
   assert(isStr(body.file_hash), 'file_hash must be a string')
 
+  const unit_system = isStr(body.unit_system) ? body.unit_system : 'unknown'
+
   const arrayFields = [
     'nodes',
     'members',
@@ -199,5 +202,7 @@ export function parseSyncPayload(body: unknown): SyncPayload {
     )
   }
 
-  return body as unknown as SyncPayload
+  const result = body as unknown as SyncPayload
+  result.unit_system = unit_system
+  return result
 }

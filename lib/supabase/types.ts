@@ -140,6 +140,7 @@ export type Database = {
           member_count: number
           mismatch_detected: boolean
           mismatch_members: number[]
+          unit_system: string
         }
         Insert: {
           id?: string
@@ -152,6 +153,7 @@ export type Database = {
           member_count?: number
           mismatch_detected?: boolean
           mismatch_members?: number[]
+          unit_system?: string
         }
         Update: {
           id?: string
@@ -164,6 +166,7 @@ export type Database = {
           member_count?: number
           mismatch_detected?: boolean
           mismatch_members?: number[]
+          unit_system?: string
         }
         Relationships: []
       }

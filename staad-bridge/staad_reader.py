@@ -562,6 +562,9 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     _flag_load_methods(load)
     _flag_output_methods(output)
 
+    # Detect the unit system STAAD is currently using.
+    unit_system = _detect_unit_system(staad, log)
+
     # Nodes
     try:
         n_nodes = _com_int(geometry, "GetNodeCount")
@@ -796,6 +799,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         project_id=project_id,
         file_name=file_path.name,
         file_hash=file_sha256(file_path),
+        unit_system=unit_system,
         nodes=nodes,
         members=members,
         sections=sections,
@@ -806,6 +810,31 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         envelope=envelope,
         reactions=reactions,
     )
+
+
+def _detect_unit_system(staad, log) -> str:
+    """Read STAAD's current input units and return a canonical label.
+
+    OpenSTAAD exposes GetInputUnitForForce() and GetInputUnitForLength()
+    on the main object. Force codes: 0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS.
+    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm.
+    We combine them into a human-readable string like "kN-m" or "kip-ft".
+    """
+    force_labels = {0: "kN", 1: "kip", 2: "kg", 3: "MN", 4: "N", 5: "lbs", 6: "kN"}
+    length_labels = {0: "m", 1: "ft", 2: "mm", 3: "cm", 4: "in", 5: "dm"}
+
+    try:
+        force_code = _unwrap_int(_safe_com_call(staad, "GetInputUnitForForce"))
+        length_code = _unwrap_int(_safe_com_call(staad, "GetInputUnitForLength"))
+        force_str = force_labels.get(force_code, f"force-{force_code}")
+        length_str = length_labels.get(length_code, f"len-{length_code}")
+        result = f"{force_str}-{length_str}"
+        log.info("staad units: force=%s(%d) length=%s(%d) → %s",
+                 force_str, force_code, length_str, length_code, result)
+        return result
+    except Exception as e:
+        log.warning("could not detect STAAD unit system: %s", e)
+        return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -928,6 +957,7 @@ def _read_mock_model(project_id: str) -> SyncPayload:
         project_id=project_id,
         file_name="MOCK-FRAME.std",
         file_hash=hashlib.sha256(hash_input.encode()).hexdigest(),
+        unit_system="kN-m",
         nodes=nodes,
         members=members,
         sections=sections,

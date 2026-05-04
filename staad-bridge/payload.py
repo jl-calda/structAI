@@ -123,6 +123,7 @@ class SyncPayload(BaseModel):
     project_id: str
     file_name: str
     file_hash: str
+    unit_system: str = "unknown"
     nodes: List[SyncNode]
     members: List[SyncMember]
     sections: List[SyncSection]
