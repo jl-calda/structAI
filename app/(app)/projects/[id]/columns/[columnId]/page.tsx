@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 
 import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
+import { PrintButton } from '@/components/ui/PrintButton'
+import { PrintHeader } from '@/components/ui/PrintHeader'
 import { ColumnCrossSection } from '@/components/columns/ColumnCrossSection'
 import { ColumnRebarEditor } from '@/components/columns/ColumnRebarEditor'
 import { PmDiagram } from '@/components/columns/PmDiagram'
@@ -56,6 +58,12 @@ export default async function ColumnDesignPage({
   return (
     <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
+      <PrintHeader
+        projectName={project.name}
+        designLabel={design.label}
+        designType="Column Design"
+        codeStandard={project.code_standard}
+      />
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
         <StatusTag status={design.design_status} />
@@ -66,7 +74,8 @@ export default async function ColumnDesignPage({
           {design.b_mm.toFixed(0)}×{design.h_mm.toFixed(0)} ·{' '}
           H {design.height_mm.toFixed(0)} mm
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <PrintButton />
           <RunColumnDesignButton projectId={projectId} columnId={columnId} />
         </div>
       </header>

@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 
 import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
+import { PrintButton } from '@/components/ui/PrintButton'
+import { PrintHeader } from '@/components/ui/PrintHeader'
 import { BeamCrossSection } from '@/components/beams/BeamCrossSection'
 import { BeamElevation } from '@/components/beams/BeamElevation'
 import { BeamRebarEditor } from '@/components/beams/BeamRebarEditor'
@@ -14,6 +16,7 @@ import {
   getBeamDesign,
   getBeamStitchedDiagram,
 } from '@/lib/data/beams'
+import { getProject } from '@/lib/data/projects'
 import type {
   BeamStirrupZone,
   BeamTensionLayer,
@@ -27,8 +30,11 @@ export default async function BeamDesignPage({
   params: Promise<{ id: string; beamId: string }>
 }) {
   const { id: projectId, beamId } = await params
-  const result = await getBeamDesign(beamId)
-  if (!result) notFound()
+  const [result, project] = await Promise.all([
+    getBeamDesign(beamId),
+    getProject(projectId),
+  ])
+  if (!result || !project) notFound()
 
   const { design, rebar, checks } = result
   const stitched = await getBeamStitchedDiagram(design)
@@ -43,6 +49,12 @@ export default async function BeamDesignPage({
   return (
     <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
+      <PrintHeader
+        projectName={project.name}
+        designLabel={design.label}
+        designType="Beam Design"
+        codeStandard={project.code_standard}
+      />
       {/* ── Header ─────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
@@ -56,7 +68,8 @@ export default async function BeamDesignPage({
           {design.total_span_mm.toFixed(0)} mm ·{' '}
           {`f'c`} {design.fc_mpa} · fy {design.fy_mpa}
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <PrintButton />
           <RunDesignButton projectId={projectId} beamId={beamId} />
         </div>
       </header>

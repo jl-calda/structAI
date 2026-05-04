@@ -1,10 +1,13 @@
 import { notFound } from 'next/navigation'
 
 import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
+import { PrintButton } from '@/components/ui/PrintButton'
+import { PrintHeader } from '@/components/ui/PrintHeader'
 import { RunFootingButton } from '@/components/footings/RunFootingButton'
 import { Tag } from '@/components/ui/Tag'
 import { getColumnDesign } from '@/lib/data/columns'
 import { getFootingDesign } from '@/lib/data/footings'
+import { getProject } from '@/lib/data/projects'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,8 +17,11 @@ export default async function FootingDesignPage({
   params: Promise<{ id: string; footingId: string }>
 }) {
   const { id: projectId, footingId } = await params
-  const result = await getFootingDesign(footingId)
-  if (!result) notFound()
+  const [result, project] = await Promise.all([
+    getFootingDesign(footingId),
+    getProject(projectId),
+  ])
+  if (!result || !project) notFound()
   const { design, checks } = result
   const col = design.column_design_id
     ? await getColumnDesign(design.column_design_id)
@@ -24,6 +30,12 @@ export default async function FootingDesignPage({
   return (
     <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
+      <PrintHeader
+        projectName={project.name}
+        designLabel={design.label}
+        designType="Footing Design"
+        codeStandard={project.code_standard}
+      />
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
         <Tag variant="green">{design.footing_type.toUpperCase()}</Tag>
@@ -36,7 +48,8 @@ export default async function FootingDesignPage({
         <span className="mono text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
           {design.length_x_mm.toFixed(0)} × {design.width_y_mm.toFixed(0)} × {design.depth_mm.toFixed(0)} mm
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <PrintButton />
           <RunFootingButton projectId={projectId} footingId={footingId} />
         </div>
       </header>
