@@ -124,3 +124,86 @@ body {
 .t tbody td.num { font-family: var(--font-mono); }
 .t tbody tr.govern td { background: var(--color-amber-l); }
 .t tbody tr.fail   td { background: var(--color-red-l); }
+
+/* ---------------------------------------------------------------------------
+   Print — A4 friendly (210mm × 297mm)
+
+   Hides sidebar, topnav, assistant panel, and interactive controls.
+   Stacks multi-column grids vertically so cards don't overflow A4 width.
+   Preserves card/table structure and engineering colors.
+   --------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+
+  /* Hide chrome + interactive elements */
+  .print-hide,
+  nav,
+  button,
+  select,
+  input { display: none !important; }
+
+  /* Show print-only elements */
+  .print-only { display: block !important; }
+
+  /* Root layout: remove flex h-screen, allow content to flow */
+  html, body { background: #fff !important; font-size: 11px; }
+  body { min-height: auto; }
+
+  /* Kill the sidebar / topnav / assistant by targeting the project layout
+     structure: the flex h-screen w-screen container becomes a block. */
+  .flex.h-screen.w-screen { display: block !important; height: auto !important; width: auto !important; overflow: visible !important; }
+
+  /* Sidebar (184px dark bar) */
+  [class*="w-[184px]"] { display: none !important; }
+
+  /* Main content: remove scroll lock, fill page */
+  main { overflow: visible !important; padding: 0 !important; background: #fff !important; }
+  .flex-1.overflow-auto { overflow: visible !important; }
+
+  /* Cards: keep structure, add light border for clarity */
+  .card {
+    border: 0.5px solid #999 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 6px;
+  }
+  .ch { background: #f5f5f5 !important; }
+  .cb { padding: 8px 10px; }
+
+  /* Tags: force border for monochrome printers */
+  .tag { border: 0.5px solid currentColor; }
+
+  /* Tables */
+  .t thead th { background: #eee !important; }
+  .t tbody td { padding: 3px 6px; font-size: 10px; }
+
+  /* Stack ALL multi-column grids vertically.
+     A4 usable width ~190mm ≈ 720px at 96dpi; multi-col grids with
+     fixed-width columns (220px+220px+flex) won't fit. */
+  [class*="grid-cols-["],
+  [class*="grid-cols-2"],
+  [class*="grid-cols-3"],
+  [class*="grid-cols-4"] {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+  }
+
+  /* Allow 2-column grids for small items (materials row, etc.) */
+  .print-grid-2 { grid-template-columns: 1fr 1fr !important; }
+
+  /* SVGs: scale to fit available width */
+  svg { max-width: 100% !important; height: auto !important; }
+
+  /* Force page breaks before major sections */
+  .print-break-before { page-break-before: always; break-before: page; }
+
+  /* Links: no underlines in print */
+  a { text-decoration: none !important; color: inherit !important; }
+
+  /* Sync banner: show but compact */
+  .flex.items-center.gap-3.rounded { padding: 4px 8px; font-size: 10px; }
+}

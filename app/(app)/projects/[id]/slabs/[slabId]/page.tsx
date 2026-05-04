@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation'
 
 import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
+import { PrintButton } from '@/components/ui/PrintButton'
+import { PrintHeader } from '@/components/ui/PrintHeader'
 import { RunSlabButton } from '@/components/slabs/RunSlabButton'
 import { Tag } from '@/components/ui/Tag'
+import { getProject } from '@/lib/data/projects'
 import { getSlabDesign } from '@/lib/data/slabs'
 
 export const dynamic = 'force-dynamic'
@@ -13,13 +16,22 @@ export default async function SlabDesignPage({
   params: Promise<{ id: string; slabId: string }>
 }) {
   const { id: projectId, slabId } = await params
-  const result = await getSlabDesign(slabId)
-  if (!result) notFound()
+  const [result, project] = await Promise.all([
+    getSlabDesign(slabId),
+    getProject(projectId),
+  ])
+  if (!result || !project) notFound()
   const { design, rebar, checks } = result
 
   return (
     <DesignErrorBoundary>
     <div className="flex flex-col gap-4">
+      <PrintHeader
+        projectName={project.name}
+        designLabel={design.label}
+        designType="Slab Design"
+        codeStandard={project.code_standard}
+      />
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
         <Tag variant="teal">{design.slab_type.replace('_', '-').toUpperCase()}</Tag>
@@ -28,7 +40,8 @@ export default async function SlabDesignPage({
         <span className="mono text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
           {design.span_x_mm.toFixed(0)} × {design.span_y_mm.toFixed(0)} mm · t = {design.thickness_mm.toFixed(0)} mm
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <PrintButton />
           <RunSlabButton projectId={projectId} slabId={slabId} />
         </div>
       </header>
