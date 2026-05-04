@@ -37,6 +37,10 @@ export async function createFootingDesignAction(
   const fc_mpa = pickNum('fc_mpa', 28)
   const fy_mpa = pickNum('fy_mpa', 420)
   const clear_cover_mm = pickNum('clear_cover_mm', 75)
+  const manualPu = pickNum('manual_pu_kn', 0) || null
+  const manualMu = pickNum('manual_mu_knm', 0) || null
+  const colB = pickNum('col_b_mm', 0) || null
+  const colH = pickNum('col_h_mm', 0) || null
 
   const service = createServiceClient()
   const { data, error } = await service
@@ -55,6 +59,10 @@ export async function createFootingDesignAction(
       fc_mpa,
       fy_mpa,
       clear_cover_mm,
+      manual_pu_kn: manualPu,
+      manual_mu_knm: manualMu,
+      col_b_mm: colB,
+      col_h_mm: colH,
     })
     .select('id')
     .single()

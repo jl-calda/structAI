@@ -17,6 +17,7 @@ export async function createColumnDesignAction(
 ): Promise<CreateColumnOutcome> {
   const projectId = (formData.get('project_id') as string | null)?.trim() ?? ''
   const label = (formData.get('label') as string | null)?.trim() ?? ''
+  const inputMode = (formData.get('input_mode') as string | null)?.trim() ?? 'staad'
   const memberIdsRaw = (formData.get('member_ids') as string | null)?.trim() ?? ''
   const fcRaw = (formData.get('fc_mpa') as string | null)?.trim() ?? '28'
   const fyRaw = (formData.get('fy_mpa') as string | null)?.trim() ?? '420'
@@ -26,12 +27,10 @@ export async function createColumnDesignAction(
   if (!projectId) return { ok: false, error: 'project_id is required' }
   if (!label) return { ok: false, error: 'Label is required (e.g. C-1)' }
 
-  const memberIds = memberIdsRaw
-    .split(/[\s,]+/)
-    .map((s) => Number.parseInt(s, 10))
-    .filter((n) => Number.isFinite(n) && n > 0)
-  if (memberIds.length === 0)
-    return { ok: false, error: 'At least one STAAD member ID is required.' }
+  const pickNum = (name: string, dflt: number) => {
+    const v = Number.parseFloat((formData.get(name) as string | null) ?? '')
+    return Number.isFinite(v) ? v : dflt
+  }
 
   const fc = Number.parseFloat(fcRaw)
   const fy = Number.parseFloat(fyRaw)
@@ -42,38 +41,65 @@ export async function createColumnDesignAction(
   if (!Number.isFinite(cover))
     return { ok: false, error: 'Clear cover must be numeric (mm).' }
 
-  const supabase = await createClient()
-  const { data: members, error: mErr } = await supabase
-    .from('staad_members')
-    .select('member_id, section_name, length_mm, member_type')
-    .eq('project_id', projectId)
-    .in('member_id', memberIds)
-  if (mErr) return { ok: false, error: `staad_members: ${mErr.message}` }
-  if (!members || members.length === 0)
-    return { ok: false, error: 'None of the given member IDs exist in this project.' }
+  let memberIds: number[] = []
+  let sectionName: string
+  let b_mm: number
+  let h_mm: number
+  let height_mm: number
 
-  const notColumn = members.filter((m) => m.member_type !== 'column')
-  if (notColumn.length > 0) {
-    return {
-      ok: false,
-      error: `Member(s) ${notColumn.map((m) => m.member_id).join(', ')} are not tagged as columns in STAAD.`,
+  if (inputMode === 'manual') {
+    b_mm = pickNum('b_mm', 0)
+    h_mm = pickNum('h_mm', 0)
+    height_mm = pickNum('height_mm', 0)
+    if (b_mm <= 0 || h_mm <= 0 || height_mm <= 0) {
+      return { ok: false, error: 'b, h, and height must be positive for manual mode.' }
     }
+    sectionName = `${Math.round(b_mm)}X${Math.round(h_mm)}`
+  } else {
+    const parsed = memberIdsRaw
+      .split(/[\s,]+/)
+      .map((s) => Number.parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+    if (parsed.length === 0)
+      return { ok: false, error: 'At least one STAAD member ID is required.' }
+    memberIds = parsed
+
+    const supabase = await createClient()
+    const { data: members, error: mErr } = await supabase
+      .from('staad_members')
+      .select('member_id, section_name, length_mm, member_type')
+      .eq('project_id', projectId)
+      .in('member_id', memberIds)
+    if (mErr) return { ok: false, error: `staad_members: ${mErr.message}` }
+    if (!members || members.length === 0)
+      return { ok: false, error: 'None of the given member IDs exist in this project.' }
+
+    const notColumn = members.filter((m) => m.member_type !== 'column')
+    if (notColumn.length > 0) {
+      return {
+        ok: false,
+        error: `Member(s) ${notColumn.map((m) => m.member_id).join(', ')} are not tagged as columns in STAAD.`,
+      }
+    }
+
+    sectionName = members[0].section_name
+    height_mm = members.reduce((s, m) => s + m.length_mm, 0)
+
+    const { data: section, error: sErr } = await supabase
+      .from('staad_sections')
+      .select('b_mm, h_mm')
+      .eq('project_id', projectId)
+      .eq('section_name', sectionName)
+      .maybeSingle()
+    if (sErr) return { ok: false, error: `staad_sections: ${sErr.message}` }
+    b_mm = section?.b_mm ?? 400
+    h_mm = section?.h_mm ?? 400
   }
 
-  const sectionName = members[0].section_name
-  // For a stacked column spanning multiple storeys, total height = sum of
-  // member lengths. Single-member columns just use that member's length.
-  const totalHeight = members.reduce((s, m) => s + m.length_mm, 0)
-
-  const { data: section, error: sErr } = await supabase
-    .from('staad_sections')
-    .select('b_mm, h_mm')
-    .eq('project_id', projectId)
-    .eq('section_name', sectionName)
-    .maybeSingle()
-  if (sErr) return { ok: false, error: `staad_sections: ${sErr.message}` }
-  const b_mm = section?.b_mm ?? 400
-  const h_mm = section?.h_mm ?? 400
+  const manualPu = inputMode === 'manual' ? pickNum('manual_pu_kn', 0) || null : null
+  const manualMuMajor = inputMode === 'manual' ? pickNum('manual_mu_major_knm', 0) || null : null
+  const manualMuMinor = inputMode === 'manual' ? pickNum('manual_mu_minor_knm', 0) || null : null
+  const manualVu = inputMode === 'manual' ? pickNum('manual_vu_kn', 0) || null : null
 
   const service = createServiceClient()
   const { data, error } = await service
@@ -85,11 +111,15 @@ export async function createColumnDesignAction(
       section_name: sectionName,
       b_mm,
       h_mm,
-      height_mm: totalHeight,
+      height_mm,
       fc_mpa: fc,
       fy_mpa: fy,
       fys_mpa: fys,
       clear_cover_mm: cover,
+      manual_pu_kn: manualPu,
+      manual_mu_major_knm: manualMuMajor,
+      manual_mu_minor_knm: manualMuMinor,
+      manual_vu_kn: manualVu,
     })
     .select('id')
     .single()

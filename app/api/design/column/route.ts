@@ -89,37 +89,39 @@ export async function POST(request: NextRequest) {
     rebarRow = seed.data
   }
 
-  // Aggregate envelope across every STAAD member in this column.
-  const { data: env, error: eErr } = await supabase
-    .from('staad_envelope')
-    .select('*')
-    .eq('project_id', body.project_id)
-    .in('member_id', design.member_ids)
-  if (eErr) return fail(`staad_envelope: ${eErr.message}`, 500)
-
-  // Pick the governing combo: largest axial compression + larger absolute M.
-  const envelopeRows = env ?? []
+  // Resolve demand — manual columns use stored values; STAAD-linked
+  // columns aggregate from staad_envelope.
   let Pu_kN = 0
   let Mu_major_kNm = 0
   let Mu_minor_kNm = 0
   let Vu_kN = 0
   let governing_combo: number | null = null
-  for (const e of envelopeRows) {
-    const pcand = Math.max(
-      e.nu_compression_max_kn,
-      0, // tension: treat as 0 on Pu for compression-controlled flow
-    )
-    if (pcand > Pu_kN) Pu_kN = pcand
-    const mMax = Math.max(e.mpos_max_knm, e.mneg_max_knm)
-    if (mMax > Mu_major_kNm) {
-      Mu_major_kNm = mMax
-      governing_combo = e.mpos_max_knm >= e.mneg_max_knm ? e.mpos_combo : e.mneg_combo
+
+  if (design.manual_pu_kn != null && design.manual_pu_kn > 0) {
+    Pu_kN = design.manual_pu_kn
+    Mu_major_kNm = design.manual_mu_major_knm ?? 0
+    Mu_minor_kNm = design.manual_mu_minor_knm ?? 0
+    Vu_kN = design.manual_vu_kn ?? 0
+  } else if (design.member_ids.length > 0) {
+    const { data: env, error: eErr } = await supabase
+      .from('staad_envelope')
+      .select('*')
+      .eq('project_id', body.project_id)
+      .in('member_id', design.member_ids)
+    if (eErr) return fail(`staad_envelope: ${eErr.message}`, 500)
+
+    for (const e of env ?? []) {
+      const pcand = Math.max(e.nu_compression_max_kn, 0)
+      if (pcand > Pu_kN) Pu_kN = pcand
+      const mMax = Math.max(e.mpos_max_knm, e.mneg_max_knm)
+      if (mMax > Mu_major_kNm) {
+        Mu_major_kNm = mMax
+        governing_combo = e.mpos_max_knm >= e.mneg_max_knm ? e.mpos_combo : e.mneg_combo
+      }
+      const mMinor = Math.max(e.mpos_max_minor_knm, e.mneg_max_minor_knm)
+      if (mMinor > Mu_minor_kNm) Mu_minor_kNm = mMinor
+      if (e.vu_max_kn > Vu_kN) Vu_kN = e.vu_max_kn
     }
-    // Minor axis (migration 0008 populated these; older rows default to 0
-    // and the biaxial path stays dormant — no behaviour change).
-    const mMinor = Math.max(e.mpos_max_minor_knm, e.mneg_max_minor_knm)
-    if (mMinor > Mu_minor_kNm) Mu_minor_kNm = mMinor
-    if (e.vu_max_kn > Vu_kN) Vu_kN = e.vu_max_kn
   }
 
   // Run the design.

@@ -76,6 +76,13 @@ export type BeamStirrupZone = {
 
 export type ElementType = 'beam' | 'column' | 'slab' | 'footing'
 
+export type SupportCondition =
+  | 'simply_supported'
+  | 'fixed_fixed'
+  | 'fixed_pinned'
+  | 'cantilever'
+  | 'continuous'
+
 export type BarShape =
   | 'straight'
   | 'bent_45'
@@ -538,6 +545,9 @@ export type Database = {
           last_designed_at: string | null
           created_at: string
           updated_at: string
+          manual_wu_kn_m: number | null
+          manual_pu_mid_kn: number | null
+          support_condition: SupportCondition
         }
         Insert: {
           id?: string
@@ -557,6 +567,9 @@ export type Database = {
           last_designed_at?: string | null
           created_at?: string
           updated_at?: string
+          manual_wu_kn_m?: number | null
+          manual_pu_mid_kn?: number | null
+          support_condition?: SupportCondition
         }
         Update: {
           id?: string
@@ -576,6 +589,9 @@ export type Database = {
           last_designed_at?: string | null
           created_at?: string
           updated_at?: string
+          manual_wu_kn_m?: number | null
+          manual_pu_mid_kn?: number | null
+          support_condition?: SupportCondition
         }
         Relationships: []
       }
@@ -742,6 +758,10 @@ export type Database = {
           last_designed_at: string | null
           created_at: string
           updated_at: string
+          manual_pu_kn: number | null
+          manual_mu_major_knm: number | null
+          manual_mu_minor_knm: number | null
+          manual_vu_kn: number | null
         }
         Insert: {
           id?: string
@@ -761,6 +781,10 @@ export type Database = {
           last_designed_at?: string | null
           created_at?: string
           updated_at?: string
+          manual_pu_kn?: number | null
+          manual_mu_major_knm?: number | null
+          manual_mu_minor_knm?: number | null
+          manual_vu_kn?: number | null
         }
         Update: {
           id?: string
@@ -780,6 +804,10 @@ export type Database = {
           last_designed_at?: string | null
           created_at?: string
           updated_at?: string
+          manual_pu_kn?: number | null
+          manual_mu_major_knm?: number | null
+          manual_mu_minor_knm?: number | null
+          manual_vu_kn?: number | null
         }
         Relationships: []
       }
@@ -1073,6 +1101,10 @@ export type Database = {
           last_designed_at: string | null
           created_at: string
           updated_at: string
+          manual_pu_kn: number | null
+          manual_mu_knm: number | null
+          col_b_mm: number | null
+          col_h_mm: number | null
         }
         Insert: {
           id?: string
@@ -1093,6 +1125,10 @@ export type Database = {
           last_designed_at?: string | null
           created_at?: string
           updated_at?: string
+          manual_pu_kn?: number | null
+          manual_mu_knm?: number | null
+          col_b_mm?: number | null
+          col_h_mm?: number | null
         }
         Update: {
           id?: string
@@ -1113,6 +1149,10 @@ export type Database = {
           last_designed_at?: string | null
           created_at?: string
           updated_at?: string
+          manual_pu_kn?: number | null
+          manual_mu_knm?: number | null
+          col_b_mm?: number | null
+          col_h_mm?: number | null
         }
         Relationships: []
       }

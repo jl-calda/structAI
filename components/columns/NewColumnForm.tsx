@@ -20,11 +20,13 @@ export function NewColumnForm({
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [mode, setMode] = useState<'staad' | 'manual'>('manual')
 
   const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     formData.set('project_id', projectId)
+    formData.set('input_mode', mode)
     setError(null)
     startTransition(async () => {
       const result = await createColumnDesignAction(formData)
@@ -45,14 +47,39 @@ export function NewColumnForm({
         </span>
       </div>
       <div className="cb flex flex-col gap-2.5">
+        <div className="flex gap-1">
+          <ModeBtn active={mode === 'manual'} onClick={() => setMode('manual')}>Manual</ModeBtn>
+          <ModeBtn active={mode === 'staad'} onClick={() => setMode('staad')}>STAAD</ModeBtn>
+        </div>
+
         <Field label="Label" name="label" placeholder="C-1" required />
-        <Field
-          label="STAAD member IDs"
-          name="member_ids"
-          placeholder="201, 202"
-          help="Comma-separated. Every ID must be tagged as a column in STAAD."
-          required
-        />
+
+        {mode === 'staad' ? (
+          <Field
+            label="STAAD member IDs"
+            name="member_ids"
+            placeholder="201, 202"
+            help="Comma-separated. Every ID must be tagged as a column in STAAD."
+            required
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              <NumField label="b (mm)" name="b_mm" value={400} />
+              <NumField label="h (mm)" name="h_mm" value={400} />
+              <NumField label="Height (mm)" name="height_mm" value={3000} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <NumField label="Pu (kN)" name="manual_pu_kn" value={1500} />
+              <NumField label="Mu major (kN.m)" name="manual_mu_major_knm" value={200} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <NumField label="Mu minor (kN.m)" name="manual_mu_minor_knm" value={0} />
+              <NumField label="Vu (kN)" name="manual_vu_kn" value={50} />
+            </div>
+          </>
+        )}
+
         <div className="grid grid-cols-3 gap-2">
           <NumField label="f'c (MPa)" name="fc_mpa" value={defaults.fc_mpa} />
           <NumField label="fy (MPa)" name="fy_mpa" value={defaults.fy_mpa} />
@@ -79,8 +106,33 @@ export function NewColumnForm({
   )
 }
 
+function ModeBtn({ active, onClick, children }: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider"
+      style={{
+        background: active ? 'var(--color-blue)' : 'transparent',
+        color: active ? '#fff' : 'var(--color-text2)',
+        border: active ? 'none' : '1px solid var(--color-border)',
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
 function Field({
-  label, name, placeholder, help, required,
+  label,
+  name,
+  placeholder,
+  help,
+  required,
 }: {
   label: string
   name: string
@@ -102,14 +154,18 @@ function Field({
       />
       {help ? (
         <span className="normal-case text-[10.5px]"
-              style={{ color: 'var(--color-text2)' }}>{help}</span>
+              style={{ color: 'var(--color-text2)' }}>
+          {help}
+        </span>
       ) : null}
     </label>
   )
 }
 
 function NumField({
-  label, name, value,
+  label,
+  name,
+  value,
 }: {
   label: string
   name: string
@@ -123,7 +179,7 @@ function NumField({
         type="number"
         name={name}
         defaultValue={value}
-        step="1"
+        step="any"
         className="mono border rounded px-2 py-1 text-[12px]"
         style={{ borderColor: 'var(--color-border)' }}
       />

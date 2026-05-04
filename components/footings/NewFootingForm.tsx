@@ -53,13 +53,21 @@ export function NewFootingForm({
           <select name="column_design_id" defaultValue=""
                   className="border rounded px-2 py-1 text-[12px] normal-case"
                   style={{ borderColor: 'var(--color-border)' }}>
-            <option value="">— none (use STAAD node below) —</option>
+            <option value="">— none —</option>
             {columns.map((c) => (
               <option key={c.id} value={c.id}>{c.label}</option>
             ))}
           </select>
         </label>
         <NumField label="STAAD node ID (fallback)" name="node_id" value={0} allowZero />
+        <div className="grid grid-cols-2 gap-2">
+          <NumField label="Manual Pu (kN)" name="manual_pu_kn" value={0} allowZero />
+          <NumField label="Manual Mu (kN.m)" name="manual_mu_knm" value={0} allowZero />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <NumField label="Col b (mm)" name="col_b_mm" value={400} allowZero />
+          <NumField label="Col h (mm)" name="col_h_mm" value={400} allowZero />
+        </div>
         <div className="grid grid-cols-3 gap-2">
           <NumField label="Lx (mm)" name="length_x_mm" value={2000} />
           <NumField label="Ly (mm)" name="width_y_mm" value={2000} />
