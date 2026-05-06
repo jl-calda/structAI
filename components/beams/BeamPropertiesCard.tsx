@@ -2,6 +2,10 @@
 
 import { useState } from 'react'
 
+import '@/lib/engineering/codes/aci318-19'
+import '@/lib/engineering/codes/nscp2015'
+import { getCode } from '@/lib/engineering/codes'
+
 import {
   PropCalcRow,
   PropGroup,
@@ -10,10 +14,12 @@ import {
   PropStaticRow,
   PropTextRow,
 } from '@/components/ui/PropRow'
+import type { CodeStandard } from '@/lib/supabase/types'
 
 export function BeamPropertiesCard({
   initial,
   staadRef,
+  code_standard,
 }: {
   initial: {
     label: string
@@ -26,6 +32,7 @@ export function BeamPropertiesCard({
     fy: number
   }
   staadRef?: string
+  code_standard: CodeStandard
 }) {
   const [b, setB] = useState(initial.b)
   const [h, setH] = useState(initial.h)
@@ -34,12 +41,15 @@ export function BeamPropertiesCard({
   const [fc, setFc] = useState(initial.fc)
   const [fy, setFy] = useState(initial.fy)
 
+  const code = getCode(code_standard)
+
   const dEff = h - cover - 20
   const dPrime = cover + 10 + 10
   const Ag = (b * h / 1000).toFixed(0)
   const Ec = Math.round(4700 * Math.sqrt(fc))
-  const beta1 = fc <= 28 ? 0.85 : Math.max(0.65, 0.85 - 0.05 * (fc - 28) / 7)
+  const beta1 = code.stress_block_depth_factor(fc)
   const wsw = (b * h * 24) / 1e6
+  const codeRef = code_standard.replace(/_/g, ' ')
 
   return (
     <div className="card">
@@ -93,8 +103,8 @@ export function BeamPropertiesCard({
           />
           <PropCalcRow
             label="β1" value={beta1.toFixed(3)} unit="—"
-            formula="β1 = 0.85 − 0.05(fc′−28)/7    [§22.2.2.4.3]"
-            expr={fc <= 28 ? `fc′ ≤ 28 → 0.85` : `= 0.85 − 0.05·(${fc}−28)/7`}
+            formula={`code.stress_block_depth_factor(${fc})    [${codeRef}]`}
+            expr={`= ${beta1.toFixed(3)}`}
           />
           <PropStaticRow label="γc" value="24" unit="kN/m³" />
           <PropSelectRow label="Aggregate" value="Normal" opts={['Normal', 'Light', 'Sand-Lt']} />
