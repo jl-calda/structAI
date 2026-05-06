@@ -8,6 +8,7 @@ import { BeamElevation3D } from './BeamElevation3D'
 import { CalcBreakdownCard } from './CalcBreakdownCard'
 import { DevSpliceCard } from './DevSpliceCard'
 import { Field2, Legend, RebarBlock } from './RebarBlock'
+import { RebarMTO } from './RebarMTO'
 import { RebarRow, type BentMode } from './RebarRow'
 
 export type BeamDesignClientProps = {
@@ -397,6 +398,23 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
         asT={asT} asReq={asReq} asPass={asPass}
         Mu_pos={forces.mPos} Mu_neg={forces.mNeg} Vu={forces.vPeak}
         activeSec={activeSec}
+      />
+
+      {/* STEP 6 — Material Take-Off */}
+      <RebarMTO
+        beamId={initial.label}
+        span={span} h={h} b={b} cover={cover}
+        perimDia={perimDia}
+        t1Count={t1Count} t1Dia={t1Dia} t1Bent={t1Bent}
+        t2Count={t2Count} t2Dia={t2Dia} t2Bent={t2Bent}
+        c1Count={c1Count} c1Dia={c1Dia}
+        c2Count={c2Count} c2Dia={c2Dia}
+        torsCount={torsCount} torsDia={torsDia}
+        stirDia={stirDia}
+        stirSpacingEnd={stirSpacingEnd}
+        stirSpacingMid={stirSpacingMid}
+        bendL={bendL}
+        fc={fc} fy={fy}
       />
     </>
   )
