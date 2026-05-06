@@ -96,11 +96,10 @@ export default async function BeamsPage({
         <NewBeamForm
           projectId={id}
           defaults={{
-            fc_mpa:
-              project.code_standard === 'NSCP_2015' ? 28 : 28,
-            fy_mpa: 420,
-            fys_mpa: 420,
-            clear_cover_mm: 40,
+            fc_mpa: project.default_fc_mpa,
+            fy_mpa: project.default_fy_mpa,
+            fys_mpa: project.default_fys_mpa,
+            clear_cover_mm: project.default_clear_cover_mm,
           }}
         />
       </div>

@@ -68,3 +68,33 @@ export async function setProjectCodeStandardAction(
   revalidatePath(`/projects/${projectId}`)
   return { ok: true }
 }
+
+export async function updateProjectDefaultsAction(
+  projectId: string,
+  defaults: {
+    name?: string
+    description?: string | null
+    client?: string | null
+    location?: string | null
+    default_fc_mpa?: number
+    default_fy_mpa?: number
+    default_fys_mpa?: number
+    default_clear_cover_mm?: number
+    default_density_kn_m3?: number
+    seismic_zone?: string
+    exposure_class?: string
+    aggregate_type?: string
+    lightweight_lambda?: number
+    engineer_name?: string
+  },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('projects')
+    .update(defaults)
+    .eq('id', projectId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/projects/${projectId}`)
+  revalidatePath(`/projects/${projectId}/setup`)
+  return { ok: true }
+}

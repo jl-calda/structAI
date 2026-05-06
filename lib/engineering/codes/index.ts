@@ -203,6 +203,20 @@ export interface CodeProvider {
       tie_dia_mm: number,
     ): number
   }
+
+  // ─── Rebar size catalog ────────────────────────────────────────────────
+  /** Available longitudinal bar diameters (mm), sorted ascending. */
+  readonly bar_dias_long: readonly number[]
+  /** Available stirrup/tie diameters (mm), sorted ascending. */
+  readonly bar_dias_stirrup: readonly number[]
+  /** Bar mass (kg/m) for a given nominal diameter (mm). */
+  bar_mass_kg_per_m(dia_mm: number): number
+  /** Display label for a bar size — `Ø20` (metric) or `#6` (ACI imperial). */
+  bar_label(dia_mm: number): string
+  /** Default longitudinal bar diameter for new beams/columns. */
+  readonly default_dia_long: number
+  /** Default stirrup diameter for new designs. */
+  readonly default_dia_stirrup: number
 }
 
 // ---------------------------------------------------------------------------

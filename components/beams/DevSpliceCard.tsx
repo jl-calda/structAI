@@ -120,7 +120,7 @@ export function DevSpliceCard({
         <span className="num-badge">4b</span>
         <span className="label">Development Length &amp; Splicing</span>
         <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-          ACI 318-19 §25.4 / NSCP 2015 §425 · λ={lambda.toFixed(1)}, ψg={psiG.toFixed(2)}
+          ACI 318-19 §25.4 / NSCP 2015 §425 · λ={lambda.toFixed(1)}, ψg={psiG.toFixed(2)} · interactive modifier calculator (ACI/NSCP only — EC2/CSA use code.Ld() in Step 5)
         </span>
         <div className="right">
           <span className={'tag ' + (bendOk ? 'pass' : 'fail')}>

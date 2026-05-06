@@ -164,6 +164,8 @@ export default async function BeamDesignPage({
             fy: design.fy_mpa,
           }}
           forces={{ mPos, mNeg, vPeak }}
+          code_standard={project.code_standard}
+          checks={checks ?? null}
         />
       </div>
     </DesignErrorBoundary>

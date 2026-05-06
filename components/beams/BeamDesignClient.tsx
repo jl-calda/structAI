@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from 'react'
 
+// Side-effect: register code providers
+import '@/lib/engineering/codes/aci318-19'
+import '@/lib/engineering/codes/nscp2015'
+import { getCode } from '@/lib/engineering/codes'
+
 import { BeamCrossSection } from './BeamCrossSection'
 import { BeamElevation } from './BeamElevation'
 import { BeamElevation3D } from './BeamElevation3D'
@@ -10,6 +15,9 @@ import { DevSpliceCard } from './DevSpliceCard'
 import { Field2, Legend, RebarBlock } from './RebarBlock'
 import { RebarMTO } from './RebarMTO'
 import { RebarRow, type BentMode } from './RebarRow'
+import type { CodeStandard, Database } from '@/lib/supabase/types'
+
+type BeamCheckRow = Database['public']['Tables']['beam_checks']['Row']
 
 export type BeamDesignClientProps = {
   initial: {
@@ -22,13 +30,18 @@ export type BeamDesignClientProps = {
     fy: number
   }
   forces: { mPos: number; mNeg: number; vPeak: number }
+  /** Project's active design code — drives CalcBreakdownCard's CodeProvider. */
+  code_standard: CodeStandard
+  /** Persisted check row from the last `Run Design` (null = never run). */
+  checks: BeamCheckRow | null
 }
 
 type Section = 'start' | 'mid' | 'end'
 
 const isBentTo = (v: BentMode, sec: Section) => sec !== 'mid' && v === 'both'
 
-export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
+export function BeamDesignClient({ initial, forces, code_standard, checks }: BeamDesignClientProps) {
+  const code = getCode(code_standard)
   const b = initial.b
   const h = initial.h
   const span = initial.span
@@ -196,14 +209,14 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
 
           <div style={{ padding: 10, borderRight: '1px solid var(--color-line-2)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <RebarBlock title="Perimeter" badge="locked" color="#D4820F">
-              <RebarRow label="L" countDisabled count={4} dia={perimDia} setDia={setPerimDia} />
+              <RebarRow label="L" countDisabled count={4} dia={perimDia} setDia={setPerimDia} diaOptions={code.bar_dias_long} diaLabel={code.bar_label} />
             </RebarBlock>
 
             <RebarBlock title="Bottom As · continuous" color="#B06008" hint="bars run full length — ⇈ to bend up">
               <RebarRow label="L1" count={t1Count} setCount={setT1Count} dia={t1Dia} setDia={setT1Dia}
-                bentArr={t1Bent} onCycleBent={i => cycleBent('t1', i)} />
+                bentArr={t1Bent} onCycleBent={i => cycleBent('t1', i)} diaOptions={code.bar_dias_long} diaLabel={code.bar_label} />
               <RebarRow label="L2" count={t2Count} setCount={setT2Count} dia={t2Dia} setDia={setT2Dia}
-                bentArr={t2Bent} onCycleBent={i => cycleBent('t2', i)} />
+                bentArr={t2Bent} onCycleBent={i => cycleBent('t2', i)} diaOptions={code.bar_dias_long} diaLabel={code.bar_label} />
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, alignItems: 'center', padding: '2px 0 0 28px' }}>
                 <span className="mono" style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>L2 gap</span>
                 <Field2 unit="mm" value={t2ClearGap} onChange={setT2ClearGap} />
@@ -247,8 +260,8 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
             </RebarBlock>
 
             <RebarBlock title="Top hangers · supports only" color="#157A6A" hint="added at i &amp; j to supplement bent-up bars">
-              <RebarRow label="L1" count={c1Count} setCount={setC1Count} dia={c1Dia} setDia={setC1Dia} />
-              <RebarRow label="L2" count={c2Count} setCount={setC2Count} dia={c2Dia} setDia={setC2Dia} />
+              <RebarRow label="L1" count={c1Count} setCount={setC1Count} dia={c1Dia} setDia={setC1Dia} diaOptions={code.bar_dias_long} diaLabel={code.bar_label} />
+              <RebarRow label="L2" count={c2Count} setCount={setC2Count} dia={c2Dia} setDia={setC2Dia} diaOptions={code.bar_dias_long} diaLabel={code.bar_label} />
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, alignItems: 'center', padding: '2px 0 0 28px' }}>
                 <span className="mono" style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>L2 gap</span>
                 <Field2 unit="mm" value={c2ClearGap} onChange={setC2ClearGap} />
@@ -256,7 +269,7 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
             </RebarBlock>
 
             <RebarBlock title="Torsional / Skin" color="#7A4FB0" hint="pairs on each side">
-              <RebarRow label="pairs" count={torsCount} setCount={setTorsCount} dia={torsDia} setDia={setTorsDia} />
+              <RebarRow label="pairs" count={torsCount} setCount={setTorsCount} dia={torsDia} setDia={setTorsDia} diaOptions={code.bar_dias_long} diaLabel={code.bar_label} />
             </RebarBlock>
           </div>
 
@@ -265,7 +278,7 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                 <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-ink-3)' }}>Ø</span>
                 <select className="select" value={stirDia} onChange={e => setStirDia(Number.parseInt(e.target.value, 10))} style={{ height: 22, fontSize: 11 }}>
-                  {[8, 10, 12, 16].map(d => <option key={d} value={d}>Ø{d}</option>)}
+                  {code.bar_dias_stirrup.map(d => <option key={d} value={d}>{code.bar_label(d)}</option>)}
                 </select>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 6, alignItems: 'center', marginBottom: 8 }}>
@@ -308,13 +321,13 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
               <div className="sub-label">Bar inventory</div>
               <table className="t">
                 <tbody>
-                  <tr><td>Perimeter</td><td className="num">4 — Ø{perimDia}</td></tr>
-                  {t1Count > 0 && <tr><td>+ Tens L1</td><td className="num">{t1Count} — Ø{t1Dia}</td></tr>}
-                  {t2Count > 0 && <tr><td>+ Tens L2</td><td className="num">{t2Count} — Ø{t2Dia}</td></tr>}
-                  {c1Count > 0 && <tr><td>Top L1 (sup)</td><td className="num">{c1Count} — Ø{c1Dia}</td></tr>}
-                  {c2Count > 0 && <tr><td>Top L2 (sup)</td><td className="num">{c2Count} — Ø{c2Dia}</td></tr>}
-                  {torsCount > 0 && <tr><td>Torsion</td><td className="num">{torsCount * 2} — Ø{torsDia}</td></tr>}
-                  <tr><td>Stirrup</td><td className="num">Ø{stirDia} {stirLegs}-leg @ {stirSpacingEnd}/{stirSpacingMid}</td></tr>
+                  <tr><td>Perimeter</td><td className="num">4 — {code.bar_label(perimDia)}</td></tr>
+                  {t1Count > 0 && <tr><td>+ Tens L1</td><td className="num">{t1Count} — {code.bar_label(t1Dia)}</td></tr>}
+                  {t2Count > 0 && <tr><td>+ Tens L2</td><td className="num">{t2Count} — {code.bar_label(t2Dia)}</td></tr>}
+                  {c1Count > 0 && <tr><td>Top L1 (sup)</td><td className="num">{c1Count} — {code.bar_label(c1Dia)}</td></tr>}
+                  {c2Count > 0 && <tr><td>Top L2 (sup)</td><td className="num">{c2Count} — {code.bar_label(c2Dia)}</td></tr>}
+                  {torsCount > 0 && <tr><td>Torsion</td><td className="num">{torsCount * 2} — {code.bar_label(torsDia)}</td></tr>}
+                  <tr><td>Stirrup</td><td className="num">{code.bar_label(stirDia)} {stirLegs}-leg @ {stirSpacingEnd}/{stirSpacingMid}</td></tr>
                 </tbody>
               </table>
             </div>
@@ -388,6 +401,8 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
 
       {/* STEP 5 — Calculation Breakdown */}
       <CalcBreakdownCard
+        code_standard={code_standard}
+        checks={checks}
         b={b} h={h} cover={cover} fc={fc} fy={fy} span={span}
         perimDia={perimDia}
         t1Count={t1Count} t1Dia={t1Dia}
@@ -415,6 +430,8 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
         stirSpacingMid={stirSpacingMid}
         bendL={bendL}
         fc={fc} fy={fy}
+        barMass={code.bar_mass_kg_per_m}
+        barLabel={code.bar_label}
       />
     </>
   )
