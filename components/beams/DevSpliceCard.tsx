@@ -19,9 +19,13 @@ export type DevSpliceCardProps = {
   h: number
   span: number
   perimDia: number
+  t1Count?: number
   t1Dia: number
+  t2Count?: number
   t2Dia?: number
+  c1Count?: number
   c1Dia: number
+  c2Count?: number
   c2Dia?: number
   t1Bent: ('none' | 'both')[]
   t2Bent?: ('none' | 'both')[]
@@ -36,9 +40,13 @@ export function DevSpliceCard({
   h,
   span,
   perimDia,
+  t1Count = 0,
   t1Dia,
+  t2Count = 0,
   t2Dia = 0,
+  c1Count = 0,
   c1Dia,
+  c2Count = 0,
   c2Dia = 0,
   t1Bent,
   t2Bent = [],
@@ -255,6 +263,9 @@ export function DevSpliceCard({
           lsTop={lapTension(c1Dia)}
           lsBot={lapTension(t1Dia)}
           spliceClass={spliceClass}
+          topHangerCount={c1Count + c2Count}
+          botBarCount={(t1Count - t1Bent.filter(v => v === 'both').length) + (t2Count - t2Bent.filter(v => v === 'both').length)}
+          bentBarCount={trussCount}
           width={860}
           height={210}
         />

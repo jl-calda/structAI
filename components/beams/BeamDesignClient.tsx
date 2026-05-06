@@ -380,8 +380,8 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
       <DevSpliceCard
         fc={fc} fy={fy} cover={cover} b={b} h={h} span={span}
         perimDia={perimDia}
-        t1Dia={t1Dia} t2Dia={t2Dia}
-        c1Dia={c1Dia} c2Dia={c2Dia}
+        t1Count={t1Count} t1Dia={t1Dia} t2Count={t2Count} t2Dia={t2Dia}
+        c1Count={c1Count} c1Dia={c1Dia} c2Count={c2Count} c2Dia={c2Dia}
         t1Bent={t1Bent} t2Bent={t2Bent}
         bendL={bendL}
       />
