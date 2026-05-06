@@ -2,6 +2,10 @@
 
 import { useState } from 'react'
 
+import '@/lib/engineering/codes/aci318-19'
+import '@/lib/engineering/codes/nscp2015'
+import { getCode } from '@/lib/engineering/codes'
+
 import {
   PropCalcRow,
   PropGroup,
@@ -10,10 +14,12 @@ import {
   PropStaticRow,
   PropTextRow,
 } from '@/components/ui/PropRow'
+import type { CodeStandard } from '@/lib/supabase/types'
 
 export function ColumnPropertiesCard({
   initial,
   staadRef,
+  code_standard,
 }: {
   initial: {
     label: string
@@ -25,7 +31,10 @@ export function ColumnPropertiesCard({
     fy: number
   }
   staadRef?: string
+  code_standard: CodeStandard
 }) {
+  const code = getCode(code_standard)
+
   const [b, setB] = useState(initial.b)
   const [h, setH] = useState(initial.h)
   const [height, setHeight] = useState(initial.height)
@@ -35,7 +44,8 @@ export function ColumnPropertiesCard({
 
   const Ag = (b * h / 1000).toFixed(0)
   const Ec = Math.round(4700 * Math.sqrt(fc))
-  const beta1 = fc <= 28 ? 0.85 : Math.max(0.65, 0.85 - 0.05 * (fc - 28) / 7)
+  const beta1 = code.stress_block_depth_factor(fc)
+  const codeRef = code_standard.replace(/_/g, ' ')
   // Radius of gyration r ≈ 0.3·h for rectangular column (simplified)
   const r = (0.3 * h).toFixed(0)
   const klu_r = (height / Number.parseFloat(r)).toFixed(1)
@@ -91,8 +101,8 @@ export function ColumnPropertiesCard({
           />
           <PropCalcRow
             label="β1" value={beta1.toFixed(3)} unit="—"
-            formula="β1 = 0.85 − 0.05(fc′−28)/7"
-            expr={fc <= 28 ? `fc′ ≤ 28 → 0.85` : `= 0.85 − 0.05·(${fc}−28)/7`}
+            formula={`code.stress_block_depth_factor(${fc})   [${codeRef}]`}
+            expr={`= ${beta1.toFixed(3)}`}
           />
         </PropGroup>
 

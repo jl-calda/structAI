@@ -124,6 +124,7 @@ export default async function BeamDesignPage({
             fy: design.fy_mpa,
           }}
           staadRef={design.member_ids.length > 0 ? design.member_ids.join(' / ') : undefined}
+          code_standard={project.code_standard}
         />
 
         {/* STEP 3 — Design Forces */}

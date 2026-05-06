@@ -51,26 +51,36 @@ export function BeamDesignClient({ initial, forces, code_standard, checks }: Bea
 
   const [activeSec, setActiveSec] = useState<Section>('mid')
 
-  const [perimDia, setPerimDia] = useState(20)
+  // Rebar defaults are driven by the project's code standard.
+  // ACI imperial: default_dia_long ≈ 19.1 (#6), default_dia_stirrup ≈ 9.5 (#3)
+  // NSCP metric:  default_dia_long = 20 (Ø20), default_dia_stirrup = 10 (Ø10)
+  const defLong = code.default_dia_long
+  const defStir = code.default_dia_stirrup
+  // c2 (secondary compression layer) uses a smaller bar — pick the next one down
+  const defSmall = code.bar_dias_long[Math.max(0, code.bar_dias_long.indexOf(defLong) - 1)] ?? defLong
+  // Torsion skin bar — use stirrup dia or one size up
+  const defTors = code.bar_dias_long[Math.max(0, code.bar_dias_long.indexOf(defStir))] ?? defStir
+
+  const [perimDia, setPerimDia] = useState(defLong)
   const [t1Count, setT1Count] = useState(3)
-  const [t1Dia, setT1Dia] = useState(20)
+  const [t1Dia, setT1Dia] = useState(defLong)
   const [t1Bent, setT1Bent] = useState<BentMode[]>(['both', 'none', 'both'])
   const [t2Count, setT2Count] = useState(0)
-  const [t2Dia, setT2Dia] = useState(20)
+  const [t2Dia, setT2Dia] = useState(defLong)
   const [t2Bent, setT2Bent] = useState<BentMode[]>([])
   const [t2ClearGap, setT2ClearGap] = useState(40)
   const [bendFrac, setBendFrac] = useState(1 / 4)
 
   const [c1Count, setC1Count] = useState(2)
-  const [c1Dia, setC1Dia] = useState(20)
+  const [c1Dia, setC1Dia] = useState(defLong)
   const [c2Count, setC2Count] = useState(0)
-  const [c2Dia, setC2Dia] = useState(16)
+  const [c2Dia, setC2Dia] = useState(defSmall)
   const [c2ClearGap, setC2ClearGap] = useState(40)
 
   const [torsCount, setTorsCount] = useState(0)
-  const [torsDia, setTorsDia] = useState(12)
+  const [torsDia, setTorsDia] = useState(defTors)
 
-  const [stirDia, setStirDia] = useState(10)
+  const [stirDia, setStirDia] = useState(defStir)
   const [stirLegs, setStirLegs] = useState<2 | 3 | 4 | 6>(2)
   const [stirSpacingEnd, setStirSpacingEnd] = useState(100)
   const [stirSpacingMid, setStirSpacingMid] = useState(200)
