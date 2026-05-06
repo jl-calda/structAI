@@ -30,7 +30,8 @@ const NAV_PROJECT = [
   { key: 'overview', label: 'Overview', icon: 'overview' as IconName, sub: '' },
   { key: 'setup', label: 'Setup', icon: 'setup' as IconName, sub: '/setup' },
   { key: 'members', label: 'Members', icon: 'members' as IconName, sub: '/members' },
-  { key: 'combinations', label: 'Load Combos', icon: 'combos' as IconName, sub: '/combinations' },
+  { key: 'basicloads', label: 'Basic Loads', icon: 'combos' as IconName, sub: '/basicloads' },
+  { key: 'loadcombos', label: 'Load Combos', icon: 'combos' as IconName, sub: '/loadcombos' },
 ] as const
 
 const NAV_DESIGN = [
