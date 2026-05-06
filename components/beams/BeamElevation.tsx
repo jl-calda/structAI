@@ -1,181 +1,155 @@
 /**
- * Beam elevation SVG — outline, support triangles, stirrup zones, the
- * 2 continuous perimeter lines top/bottom, and bent-down tension bars
- * that dip at 45° past the bend points.
+ * Beam elevation — 2D side view with column stubs, stirrup zones, top/
+ * bottom bars, top hangers, and bent-up truss bars from the bottom row
+ * to the top. Engineering colors per design system.
  */
-import type { BeamStirrupZone, BeamTensionLayer } from '@/lib/supabase/types'
 
-export function BeamElevation({
-  total_span_mm,
-  h_mm,
-  stirrup_zones,
-  tension_layers,
-  bend_point_left_mm,
-  bend_point_right_mm,
-  width = 600,
-  height = 190,
-}: {
-  total_span_mm: number
-  h_mm: number
-  stirrup_zones: BeamStirrupZone[]
-  tension_layers: BeamTensionLayer[]
-  bend_point_left_mm: number
-  bend_point_right_mm: number
+export type BeamElevationProps = {
+  span: number
+  h: number
+  b?: number
+  cover?: number
+  perimDia?: number
+  t1Count?: number
+  t1Dia?: number
+  t1Bent?: ('none' | 'both')[]
+  t2Count?: number
+  t2Dia?: number
+  t2Bent?: ('none' | 'both')[]
+  c1Count?: number
+  c1Dia?: number
+  c2Count?: number
+  c2Dia?: number
+  stirDia?: number
+  stirSpacingEnd?: number
+  stirSpacingMid?: number
+  denseEnd?: number
+  bendL?: number
   width?: number
   height?: number
-}) {
-  const padL = 24
-  const padR = 24
-  const padTop = 24
-  const padBot = 42
-  const w = width - padL - padR
-  const h = height - padTop - padBot
-  const scaleX = total_span_mm > 0 ? w / total_span_mm : 1
-  const scaleY = h_mm > 0 ? h / h_mm : 1
-
-  const beamTop = padTop
-  const beamBottom = padTop + h_mm * scaleY
-  const beamLeft = padL
-  const beamRight = padL + total_span_mm * scaleX
-
-  // Perimeter lines offset in from the face (~cover equivalent).
-  const perimInset = 8
-  const topBarY = beamTop + perimInset
-  const botBarY = beamBottom - perimInset
-  const compressionY = beamTop + perimInset + 6
-
-  // Stirrups — render at spacing within each zone.
-  const stirrups: number[] = []
-  for (const z of stirrup_zones) {
-    if (z.spacing_mm <= 0) continue
-    for (let x = z.start_mm; x <= z.end_mm; x += z.spacing_mm) {
-      stirrups.push(x)
-    }
-  }
-
-  const bendL_x = beamLeft + bend_point_left_mm * scaleX
-  const bendR_x = beamLeft + bend_point_right_mm * scaleX
-
-  const hasBentDown = tension_layers.some((l) => l.bent_down && l.count > 0)
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}
-         role="img" aria-label="Beam elevation">
-      {/* Concrete outline */}
-      <rect
-        x={beamLeft} y={beamTop}
-        width={beamRight - beamLeft} height={beamBottom - beamTop}
-        fill="#E8E4DC" stroke="#4A4038" strokeWidth={2}
-      />
-
-      {/* Stirrup verticals */}
-      {stirrups.map((x, i) => {
-        const xPx = beamLeft + x * scaleX
-        return (
-          <line
-            key={i}
-            x1={xPx} y1={beamTop + 4}
-            x2={xPx} y2={beamBottom - 4}
-            stroke="#1755A0"
-            strokeWidth={0.7}
-          />
-        )
-      })}
-
-      {/* Continuous perimeter bars — top and bottom (2 lines each) */}
-      <line x1={beamLeft} y1={topBarY} x2={beamRight} y2={topBarY}
-            stroke="#D4820F" strokeWidth={1.2} />
-      <line x1={beamLeft} y1={topBarY + 3} x2={beamRight} y2={topBarY + 3}
-            stroke="#D4820F" strokeWidth={1.2} />
-      <line x1={beamLeft} y1={botBarY} x2={beamRight} y2={botBarY}
-            stroke="#D4820F" strokeWidth={1.2} />
-      <line x1={beamLeft} y1={botBarY - 3} x2={beamRight} y2={botBarY - 3}
-            stroke="#D4820F" strokeWidth={1.2} />
-
-      {/* Compression bar (if any) */}
-      {tension_layers.some((l) => l.bent_down) ? (
-        <line x1={beamLeft} y1={compressionY} x2={beamRight} y2={compressionY}
-              stroke="#157A6A" strokeWidth={1.1} />
-      ) : null}
-
-      {/* Bent-down additional bar — a single representative diagonal
-          at each support (45°). The real bar count is in the
-          cross-section and MTO. */}
-      {hasBentDown ? (
-        <>
-          <path
-            d={`M ${beamLeft + 4} ${botBarY - 4} L ${bendL_x} ${botBarY - 4}
-                L ${bendL_x + 12} ${topBarY + 4}
-                L ${beamRight - 4} ${topBarY + 4}`}
-            fill="none" stroke="#B06008" strokeWidth={1.4}
-          />
-          <path
-            d={`M ${beamLeft + 4} ${topBarY + 4} L ${bendR_x - 12} ${topBarY + 4}
-                L ${bendR_x} ${botBarY - 4}
-                L ${beamRight - 4} ${botBarY - 4}`}
-            fill="none" stroke="#B06008" strokeWidth={1.4}
-          />
-          {/* Red tick marks at bend points */}
-          <BendTick x={bendL_x} y={botBarY - 4} />
-          <BendTick x={bendR_x} y={botBarY - 4} />
-        </>
-      ) : null}
-
-      {/* Support triangles */}
-      <polygon
-        points={`${beamLeft - 6},${beamBottom + 12}
-                 ${beamLeft + 6},${beamBottom + 12}
-                 ${beamLeft},${beamBottom}`}
-        fill="#4A4038"
-      />
-      <polygon
-        points={`${beamRight - 6},${beamBottom + 12}
-                 ${beamRight + 6},${beamBottom + 12}
-                 ${beamRight},${beamBottom}`}
-        fill="#4A4038"
-      />
-
-      {/* Span dimension */}
-      <g fontFamily="IBM Plex Mono" fontSize={9} fill="#6A6560">
-        <line
-          x1={beamLeft} y1={height - 12}
-          x2={beamRight} y2={height - 12}
-          stroke="#9A9490" strokeWidth={0.7}
-        />
-        <line x1={beamLeft} y1={height - 15} x2={beamLeft} y2={height - 9}
-              stroke="#9A9490" />
-        <line x1={beamRight} y1={height - 15} x2={beamRight} y2={height - 9}
-              stroke="#9A9490" />
-        <text x={beamLeft + (beamRight - beamLeft) / 2} y={height - 3}
-              textAnchor="middle">
-          L = {total_span_mm.toFixed(0)} mm
-        </text>
-      </g>
-
-      {/* Bend point labels */}
-      {hasBentDown ? (
-        <g fontFamily="IBM Plex Mono" fontSize={8} fill="#A02020">
-          <text x={bendL_x} y={beamTop - 6} textAnchor="middle">
-            lb = {bend_point_left_mm.toFixed(0)} mm
-          </text>
-          <text
-            x={bendR_x}
-            y={beamTop - 6}
-            textAnchor="middle"
-          >
-            lb = {(total_span_mm - bend_point_right_mm).toFixed(0)} mm
-          </text>
-        </g>
-      ) : null}
-    </svg>
-  )
 }
 
-function BendTick({ x, y }: { x: number; y: number }) {
+export function BeamElevation({
+  span,
+  h,
+  cover = 40,
+  perimDia = 20,
+  t1Count = 3,
+  t1Bent = ['both', 'none', 'both'],
+  t2Count = 0,
+  t2Bent = [],
+  c1Count = 2,
+  stirSpacingEnd = 100,
+  stirSpacingMid = 200,
+  denseEnd = 1500,
+  bendL = 1200,
+  width = 840,
+  height = 220,
+}: BeamElevationProps) {
+  const padL = 60
+  const padR = 32
+  const padT = 22
+  const padB = 38
+  const w = width - padL - padR
+  const innerH = height - padT - padB
+  const sx = w / span
+  const sy = innerH / h
+  const top = padT + 8
+  const bot = padT + 8 + h * sy
+  const L = padL
+  const R = padL + span * sx
+
+  const stirrups: number[] = []
+  for (let x = 0; x < denseEnd; x += stirSpacingEnd) stirrups.push(x)
+  for (let x = denseEnd; x < span - denseEnd; x += stirSpacingMid) stirrups.push(x)
+  for (let x = span - denseEnd; x <= span; x += stirSpacingEnd) stirrups.push(x)
+
+  const topBarY = top + cover * sy + (perimDia / 2) * sy
+  const botBarY = bot - cover * sy - (perimDia / 2) * sy
+  const hangerLen = Math.min(span * 0.45, bendL + 800)
+
+  const t1TrussCount = t1Bent.filter(v => v === 'both').length
+  const t2TrussCount = t2Bent.filter(v => v === 'both').length
+  const trussCount = t1TrussCount + t2TrussCount
+  const totalBotBars = t1Count + t2Count
+
   return (
-    <g stroke="#A02020" strokeWidth={1.4}>
-      <line x1={x - 3} y1={y - 4} x2={x + 3} y2={y + 4} />
-      <line x1={x - 3} y1={y + 4} x2={x + 3} y2={y - 4} />
-    </g>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <rect x={L - 18} y={top - 18} width={36} height={bot - top + 36} fill="#E8E3D7" stroke="#7A6E5A" strokeWidth={1} />
+      <rect x={R - 18} y={top - 18} width={36} height={bot - top + 36} fill="#E8E3D7" stroke="#7A6E5A" strokeWidth={1} />
+      <text x={L} y={top - 22} textAnchor="middle" fontFamily="JetBrains Mono" fontSize={9} fill="#6B6058">column i</text>
+      <text x={R} y={top - 22} textAnchor="middle" fontFamily="JetBrains Mono" fontSize={9} fill="#6B6058">column j</text>
+
+      <rect x={L} y={top} width={R - L} height={bot - top} fill="#ECEAE4" stroke="#4A4038" strokeWidth={1.4} />
+
+      {stirrups.map((x, i) => {
+        const px = L + x * sx
+        return <line key={i} x1={px} y1={top + 3} x2={px} y2={bot - 3} stroke="#1755A0" strokeWidth={0.6} />
+      })}
+
+      <g fontFamily="JetBrains Mono" fontSize={8.5} fill="#1755A0">
+        <text x={L + (denseEnd * sx) / 2} y={bot + 12} textAnchor="middle">@{stirSpacingEnd}</text>
+        <text x={L + ((span * sx) / 2)} y={bot + 12} textAnchor="middle">@{stirSpacingMid}</text>
+        <text x={R - (denseEnd * sx) / 2} y={bot + 12} textAnchor="middle">@{stirSpacingEnd}</text>
+      </g>
+
+      {/* Perimeter top corner bars (continuous, double-line) */}
+      <line x1={L} y1={top + 6} x2={R} y2={top + 6} stroke="#D4820F" strokeWidth={1.4} />
+      <line x1={L} y1={top + 9} x2={R} y2={top + 9} stroke="#D4820F" strokeWidth={1.4} />
+
+      {/* Perimeter bottom corner bars (continuous) */}
+      <line x1={L} y1={bot - 6} x2={R} y2={bot - 6} stroke="#D4820F" strokeWidth={1.4} />
+      <line x1={L} y1={bot - 9} x2={R} y2={bot - 9} stroke="#D4820F" strokeWidth={1.4} />
+
+      {/* Top hangers — over each support only */}
+      {c1Count > 0 && (
+        <>
+          <line x1={L} y1={top + 14} x2={L + hangerLen * sx} y2={top + 14} stroke="#157A6A" strokeWidth={2} />
+          <line x1={R - hangerLen * sx} y1={top + 14} x2={R} y2={top + 14} stroke="#157A6A" strokeWidth={2} />
+        </>
+      )}
+
+      {/* Bottom continuous tension bars */}
+      {totalBotBars > 0 && (
+        <line x1={L} y1={botBarY} x2={R} y2={botBarY} stroke="#B06008" strokeWidth={1.6} />
+      )}
+
+      {/* Bent-up truss bars: bottom near midspan, then up to top at supports */}
+      {trussCount > 0 && (
+        <>
+          <path
+            d={`M ${L + 4} ${botBarY} L ${L + bendL * sx} ${botBarY} L ${L + bendL * sx + 18} ${topBarY + 4} L ${R - 4} ${topBarY + 4}`}
+            fill="none"
+            stroke="#B06008"
+            strokeWidth={1.4}
+            strokeDasharray="5 3"
+            opacity={0.85}
+          />
+          <path
+            d={`M ${L + 4} ${topBarY + 4} L ${L + (span - bendL) * sx - 18} ${topBarY + 4} L ${L + (span - bendL) * sx} ${botBarY} L ${R - 4} ${botBarY}`}
+            fill="none"
+            stroke="#B06008"
+            strokeWidth={1.4}
+            strokeDasharray="5 3"
+            opacity={0.85}
+          />
+          <text x={L + bendL * sx} y={bot + 24} textAnchor="middle" fontFamily="JetBrains Mono" fontSize={8.5} fill="#7A4408">bend @ {bendL}</text>
+          <text x={L + (span - bendL) * sx} y={bot + 24} textAnchor="middle" fontFamily="JetBrains Mono" fontSize={8.5} fill="#7A4408">bend @ {bendL}</text>
+        </>
+      )}
+
+      <polygon points={`${L - 6},${bot + 6} ${L + 6},${bot + 6} ${L},${bot}`} fill="#4A4038" />
+      <polygon points={`${R - 6},${bot + 6} ${R + 6},${bot + 6} ${R},${bot}`} fill="#4A4038" />
+
+      <g fontFamily="JetBrains Mono" fontSize={9} fill="#6B7079">
+        <line x1={L} y1={height - 8} x2={R} y2={height - 8} stroke="#9CA0A8" strokeWidth={0.6} />
+        <line x1={L} y1={height - 11} x2={L} y2={height - 5} stroke="#9CA0A8" />
+        <line x1={R} y1={height - 11} x2={R} y2={height - 5} stroke="#9CA0A8" />
+        <text x={(L + R) / 2} y={height - 1} textAnchor="middle">L = {span} mm</text>
+      </g>
+
+      <text x={L - 4} y={top + 8} textAnchor="end" fontFamily="JetBrains Mono" fontSize={9} fill="#157A6A">top</text>
+      <text x={L - 4} y={bot - 4} textAnchor="end" fontFamily="JetBrains Mono" fontSize={9} fill="#B06008">bot</text>
+    </svg>
   )
 }
