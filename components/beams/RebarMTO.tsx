@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 
 import type { BentMode } from './RebarRow'
 
@@ -25,6 +25,8 @@ const BAR_MASS: Record<number, number> = {
 }
 
 type BarShape = 'straight-hooked' | 'L-hooked' | 'bent-truss' | 'stirrup'
+type Seg = { len: number; lbl: string }
+type Geometry = { kind: 'straight' | 'l-hook' | 'bent' | 'stirrup'; segs: Seg[]; total: number }
 type Mark = {
   mark: string
   desc: string
@@ -33,6 +35,10 @@ type Mark = {
   db: number
   cutLen: number
   splices: number
+  geom: Geometry
+  ld: number
+  ldh: number
+  lap: number
 }
 
 export type RebarMTOProps = {
@@ -154,26 +160,34 @@ export function RebarMTO(props: RebarMTOProps) {
               const mass = (totLen / 1000) * (BAR_MASS[m.db] || 0)
               const isSel = selectedMark === m.mark
               return (
-                <tr
-                  key={m.mark}
-                  onClick={() => setSelectedMark(isSel ? null : m.mark)}
-                  style={{ cursor: 'pointer', background: isSel ? '#FEF3E0' : undefined }}
-                >
-                  <td><span className="mono" style={{ fontWeight: 700, color: 'var(--color-ink)' }}>{m.mark}</span></td>
-                  <td style={{ color: 'var(--color-ink-2)' }}>{m.desc}</td>
-                  <td><BarShapeIcon shape={m.shape} /></td>
-                  <td className="num" style={{ textAlign: 'right' }}><span className="mono">Ø{m.db}</span></td>
-                  <td className="num" style={{ textAlign: 'right' }}><span className="mono">{m.count}</span></td>
-                  <td className="num" style={{ textAlign: 'right' }}><span className="mono">{m.cutLen.toLocaleString()}</span></td>
-                  <td className="num" style={{ textAlign: 'right' }}>
-                    <span className="mono" style={{ color: m.splices > 0 ? '#A12424' : 'var(--color-ink-4)' }}>
-                      {m.splices > 0 ? `+${m.splices}` : '—'}
-                    </span>
-                  </td>
-                  <td className="num" style={{ textAlign: 'right' }}><span className="mono">{totLen.toLocaleString()}</span></td>
-                  <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ color: 'var(--color-ink-3)' }}>{(BAR_MASS[m.db] || 0).toFixed(3)}</span></td>
-                  <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ fontWeight: 600 }}>{mass.toFixed(2)}</span></td>
-                </tr>
+                <Fragment key={m.mark}>
+                  <tr
+                    onClick={() => setSelectedMark(isSel ? null : m.mark)}
+                    style={{ cursor: 'pointer', background: isSel ? '#FEF3E0' : undefined }}
+                  >
+                    <td><span className="mono" style={{ fontWeight: 700, color: 'var(--color-ink)' }}>{m.mark}</span></td>
+                    <td style={{ color: 'var(--color-ink-2)' }}>{m.desc}</td>
+                    <td><BarShapeIcon shape={m.shape} /></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono">Ø{m.db}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono">{m.count}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono">{m.cutLen.toLocaleString()}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}>
+                      <span className="mono" style={{ color: m.splices > 0 ? '#A12424' : 'var(--color-ink-4)' }}>
+                        {m.splices > 0 ? `+${m.splices}` : '—'}
+                      </span>
+                    </td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono">{totLen.toLocaleString()}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ color: 'var(--color-ink-3)' }}>{(BAR_MASS[m.db] || 0).toFixed(3)}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ fontWeight: 600 }}>{mass.toFixed(2)}</span></td>
+                  </tr>
+                  {isSel && (
+                    <tr>
+                      <td colSpan={10} style={{ padding: 0, background: '#FEF9EE', borderTop: '1px solid #E8C879' }}>
+                        <BarDetailView mark={m} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               )
             })}
           </tbody>
@@ -291,6 +305,152 @@ function BarShapeIcon({ shape }: { shape: BarShape }) {
 }
 
 // ---------------------------------------------------------------------------
+// BarDetailView — schematic of the selected mark with dimensioned legs
+// ---------------------------------------------------------------------------
+
+type DimRow = {
+  x1: number; x2: number; y: number; label: string
+  vert?: boolean; vy?: number; side?: boolean
+}
+
+function BarDetailView({ mark }: { mark: Mark }) {
+  const { geom, db, ld: ldVal, ldh: ldhVal, lap: lapVal } = mark
+  const W = 760
+  const H = 200
+  const padL = 50
+  const padR = 50
+  const segs = geom.segs
+  const totalLen = segs.reduce((s, x) => s + x.len, 0)
+  const sx = (W - padL - padR) / Math.max(totalLen, 1)
+  const cy = H / 2
+  const barColor = mark.shape === 'L-hooked' ? '#157A6A' : mark.shape === 'stirrup' ? '#1755A0' : '#B06008'
+
+  let path = ''
+  let dimRows: DimRow[] = []
+
+  if (geom.kind === 'straight') {
+    const x0 = padL
+    const x1 = padL + segs[1].len * sx
+    const hookH = 22
+    path = `M ${x0} ${cy + hookH} L ${x0} ${cy} L ${x1} ${cy} L ${x1} ${cy + hookH}`
+    dimRows = [
+      { x1: x0, x2: x1, y: cy - 18, label: `span = ${Math.round(segs[1].len).toLocaleString()} mm` },
+      { x1: x0, x2: x0, y: cy + hookH + 14, label: `ldh = ${ldhVal}`, vert: true, vy: cy + hookH },
+      { x1: x1, x2: x1, y: cy + hookH + 14, label: `ldh = ${ldhVal}`, vert: true, vy: cy + hookH },
+    ]
+  } else if (geom.kind === 'l-hook') {
+    const hookH = 26
+    const x0 = padL
+    const x1 = padL + segs[1].len * sx
+    path = `M ${x0} ${cy + hookH} L ${x0} ${cy} L ${x1} ${cy}`
+    dimRows = [
+      { x1: x0, x2: x1, y: cy - 18, label: `top run = ${Math.round(segs[1].len).toLocaleString()} mm` },
+      { x1: x0, x2: x0, y: cy + hookH + 14, label: `ldh = ${ldhVal}`, vert: true, vy: cy + hookH },
+    ]
+  } else if (geom.kind === 'bent') {
+    const yTop = cy - 28
+    const yBot = cy + 28
+    let x = padL
+    const pts: [number, number][] = []
+    pts.push([x, yTop + 18])
+    pts.push([x, yTop])
+    x += segs[1].len * sx; pts.push([x, yTop])
+    x += segs[2].len * sx * 0.6; pts.push([x, yBot])
+    x += segs[3].len * sx; pts.push([x, yBot])
+    x += segs[4].len * sx * 0.6; pts.push([x, yTop])
+    x += segs[5].len * sx; pts.push([x, yTop])
+    pts.push([x, yTop + 18])
+    path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + ` ${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ')
+    dimRows = [
+      { x1: pts[1][0], x2: pts[2][0], y: yTop - 14, label: `bendL = ${Math.round(segs[1].len)}` },
+      { x1: pts[3][0], x2: pts[4][0], y: yBot + 16, label: `mid = ${Math.round(segs[3].len).toLocaleString()}` },
+      { x1: pts[5][0], x2: pts[6][0], y: yTop - 14, label: `bendL = ${Math.round(segs[5].len)}` },
+      { x1: pts[0][0], x2: pts[0][0], y: yTop + 32, label: `ldh = ${ldhVal}`, vert: true, vy: yTop + 18 },
+      { x1: pts[7][0], x2: pts[7][0], y: yTop + 32, label: `ldh = ${ldhVal}`, vert: true, vy: yTop + 18 },
+    ]
+  } else {
+    // stirrup — closed rectangle with 135° hook
+    const sw = 120
+    const sh = 80
+    const x0 = (W - sw) / 2
+    const y0 = (H - sh) / 2
+    path = `M ${x0} ${y0} L ${x0 + sw} ${y0} L ${x0 + sw} ${y0 + sh} L ${x0} ${y0 + sh} L ${x0} ${y0} L ${x0 + sw} ${y0} L ${x0 + sw + 18} ${y0 - 14}`
+    dimRows = [
+      { x1: x0, x2: x0 + sw, y: y0 - 12, label: `b−2c = ${Math.round(segs[0].len)} mm` },
+      { x1: x0 + sw + 24, x2: x0 + sw + 24, y: y0 + sh / 2, label: `h−2c = ${Math.round(segs[1].len)} mm`, side: true },
+    ]
+  }
+
+  return (
+    <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+        <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-ink)' }}>{mark.mark}</span>
+        <span style={{ fontSize: 11.5, color: 'var(--color-ink-2)' }}>{mark.desc}</span>
+        <span className="tag">Ø{db}</span>
+        <span className="tag">{mark.count} pcs</span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>cut len = {mark.cutLen.toLocaleString()} mm</span>
+        {mark.splices > 0 && (
+          <span className="mono" style={{ fontSize: 11, color: '#A12424' }}>+{mark.splices} splice (ls = {lapVal} mm)</span>
+        )}
+        <span className="mono" style={{ fontSize: 11, color: 'var(--color-ink-4)' }}>ld = {ldVal} · ldh = {ldhVal}</span>
+      </div>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ background: '#fff', border: '1px solid var(--color-line-2)', borderRadius: 4 }}>
+        <path d={path} fill="none" stroke={barColor} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+        {dimRows.map((d, i) => (
+          <g key={i} fontFamily="JetBrains Mono" fontSize={9.5} fill="#6B7079">
+            {d.vert ? (
+              <g>
+                <line x1={d.x1 - 6} y1={d.vy} x2={d.x1 - 6} y2={d.y} stroke="#9CA0A8" strokeWidth={0.6} />
+                <line x1={d.x1 - 9} y1={d.vy ?? d.y} x2={d.x1 - 3} y2={d.vy ?? d.y} stroke="#9CA0A8" />
+                <line x1={d.x1 - 9} y1={d.y} x2={d.x1 - 3} y2={d.y} stroke="#9CA0A8" />
+                <text x={d.x1 - 10} y={((d.vy ?? d.y) + d.y) / 2 + 3} textAnchor="end" fill="#A12424">{d.label}</text>
+              </g>
+            ) : d.side ? (
+              <g>
+                <line x1={d.x1} y1={d.y - 30} x2={d.x1} y2={d.y + 30} stroke="#9CA0A8" strokeWidth={0.6} />
+                <text x={d.x1 + 4} y={d.y + 3} fill="#6B7079">{d.label}</text>
+              </g>
+            ) : (
+              <g>
+                <line x1={d.x1} y1={d.y} x2={d.x2} y2={d.y} stroke="#9CA0A8" strokeWidth={0.6} />
+                <line x1={d.x1} y1={d.y - 3} x2={d.x1} y2={d.y + 3} stroke="#9CA0A8" />
+                <line x1={d.x2} y1={d.y - 3} x2={d.x2} y2={d.y + 3} stroke="#9CA0A8" />
+                <text x={(d.x1 + d.x2) / 2} y={d.y - 4} textAnchor="middle">{d.label}</text>
+              </g>
+            )}
+          </g>
+        ))}
+        <text x={W / 2} y={H - 8} textAnchor="middle" fontFamily="JetBrains Mono" fontSize={10} fill="#4A4038" fontWeight={600}>
+          Σ cut length = {mark.cutLen.toLocaleString()} mm  ·  mass per pc = {(mark.cutLen / 1000 * (BAR_MASS[db] || 0)).toFixed(2)} kg
+        </text>
+      </svg>
+      <table className="t" style={{ fontSize: 10.5, background: '#fff' }}>
+        <thead>
+          <tr>
+            <th style={{ width: 50 }}>seg</th>
+            <th>description</th>
+            <th className="num" style={{ textAlign: 'right', width: 90 }}>length (mm)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {segs.map((s, i) => (
+            <tr key={i}>
+              <td><span className="mono" style={{ color: 'var(--color-ink-3)' }}>{i + 1}</span></td>
+              <td style={{ color: 'var(--color-ink-2)' }}>{s.lbl}</td>
+              <td className="num" style={{ textAlign: 'right' }}><span className="mono">{Math.round(s.len).toLocaleString()}</span></td>
+            </tr>
+          ))}
+          <tr style={{ background: '#F5F2EB', fontWeight: 600 }}>
+            <td colSpan={2}><span className="mono">TOTAL · per piece</span></td>
+            <td className="num" style={{ textAlign: 'right' }}><span className="mono">{Math.round(totalLen).toLocaleString()}</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Pure helpers — outside component so they don't recompute on every render
 // ---------------------------------------------------------------------------
 
@@ -330,23 +490,87 @@ function buildMarks(args: BuildArgs) {
   const straightBotLen = (db: number) => span + 2 * ldh(db)
   const hangerLen = (db: number) => bendL + ld(db) + ldh(db)
 
+  const buildGeom = (shape: BarShape, db: number, cutLen: number): Geometry => {
+    const ldhV = ldh(db)
+    if (shape === 'stirrup') {
+      const longSide = h - 2 * cover
+      const shortSide = b - 2 * cover
+      const tail = Math.max(75, 6 * db)
+      return {
+        kind: 'stirrup',
+        segs: [
+          { len: shortSide, lbl: 'b−2c' },
+          { len: longSide, lbl: 'h−2c' },
+          { len: shortSide, lbl: 'b−2c' },
+          { len: longSide, lbl: 'h−2c' },
+          { len: tail, lbl: 'hook 135°' },
+          { len: tail, lbl: 'hook 135°' },
+        ],
+        total: 2 * (longSide + shortSide) + 2 * tail,
+      }
+    }
+    if (shape === 'bent-truss') {
+      const flat = span - 2 * bendL - 2 * bendRun
+      return {
+        kind: 'bent',
+        segs: [
+          { len: ldhV, lbl: 'ldh hook' },
+          { len: bendL, lbl: 'top leg' },
+          { len: diag, lbl: 'diag' },
+          { len: flat, lbl: 'bot mid' },
+          { len: diag, lbl: 'diag' },
+          { len: bendL, lbl: 'top leg' },
+          { len: ldhV, lbl: 'ldh hook' },
+        ],
+        total: cutLen,
+      }
+    }
+    if (shape === 'L-hooked') {
+      return {
+        kind: 'l-hook',
+        segs: [
+          { len: ldhV, lbl: 'ldh hook (col i side)' },
+          { len: cutLen - ldhV, lbl: 'top run' },
+        ],
+        total: cutLen,
+      }
+    }
+    return {
+      kind: 'straight',
+      segs: [
+        { len: ldhV, lbl: 'ldh' },
+        { len: cutLen - 2 * ldhV, lbl: 'span' },
+        { len: ldhV, lbl: 'ldh' },
+      ],
+      total: cutLen,
+    }
+  }
+
+  const mk = (
+    mark: string, desc: string, shape: BarShape, count: number, db: number, cutLen: number,
+  ): Mark => ({
+    mark, desc, shape, count, db, cutLen, splices: 0,
+    geom: buildGeom(shape, db, cutLen),
+    ld: ld(db), ldh: ldh(db), lap: lapB(db),
+  })
+
   const t1BentCount = t1Bent.filter(x => x === 'both').length
   const t1StraightCount = t1Count - t1BentCount
   const t2BentCount = t2Bent.filter(x => x === 'both').length
   const t2StraightCount = t2Count - t2BentCount
 
   const marks: Mark[] = [
-    { mark: 'M1', desc: 'Perimeter — top corners', shape: 'straight-hooked', count: 2, db: perimDia, cutLen: span + 2 * ldh(perimDia), splices: 0 },
-    { mark: 'M2', desc: 'Perimeter — bot corners', shape: 'straight-hooked', count: 2, db: perimDia, cutLen: span + 2 * ldh(perimDia), splices: 0 },
+    mk('M1', 'Perimeter — top corners', 'straight-hooked', 2, perimDia, span + 2 * ldh(perimDia)),
+    mk('M2', 'Perimeter — bot corners', 'straight-hooked', 2, perimDia, span + 2 * ldh(perimDia)),
   ]
-  if (t1StraightCount > 0) marks.push({ mark: 'M3', desc: 'Bottom L1 · straight', shape: 'straight-hooked', count: t1StraightCount, db: t1Dia, cutLen: straightBotLen(t1Dia), splices: 0 })
-  if (t1BentCount > 0) marks.push({ mark: 'M4', desc: 'Bottom L1 · bent-up (truss)', shape: 'bent-truss', count: t1BentCount, db: t1Dia, cutLen: bentBarLen(t1Dia), splices: 0 })
-  if (t2StraightCount > 0) marks.push({ mark: 'M5', desc: 'Bottom L2 · straight', shape: 'straight-hooked', count: t2StraightCount, db: t2Dia, cutLen: straightBotLen(t2Dia), splices: 0 })
-  if (t2BentCount > 0) marks.push({ mark: 'M6', desc: 'Bottom L2 · bent-up', shape: 'bent-truss', count: t2BentCount, db: t2Dia, cutLen: bentBarLen(t2Dia), splices: 0 })
-  if (c1Count > 0) marks.push({ mark: 'M7', desc: 'Top hanger L1 · @ supports', shape: 'L-hooked', count: c1Count * 2, db: c1Dia, cutLen: hangerLen(c1Dia), splices: 0 })
-  if (c2Count > 0) marks.push({ mark: 'M8', desc: 'Top hanger L2 · @ supports', shape: 'L-hooked', count: c2Count * 2, db: c2Dia, cutLen: hangerLen(c2Dia), splices: 0 })
-  if (torsCount > 0) marks.push({ mark: 'M9', desc: 'Torsional / skin · pairs', shape: 'straight-hooked', count: torsCount * 2, db: torsDia, cutLen: span + 2 * ldh(torsDia), splices: 0 })
-  marks.push({ mark: 'M10', desc: `Stirrup · Ø${stirDia} closed tie`, shape: 'stirrup', count: stirCount, db: stirDia, cutLen: stirCutLen, splices: 0 })
+  if (t1StraightCount > 0) marks.push(mk('M3', 'Bottom L1 · straight', 'straight-hooked', t1StraightCount, t1Dia, straightBotLen(t1Dia)))
+  if (t1BentCount > 0) marks.push(mk('M4', 'Bottom L1 · bent-up (truss)', 'bent-truss', t1BentCount, t1Dia, bentBarLen(t1Dia)))
+  if (t2StraightCount > 0) marks.push(mk('M5', 'Bottom L2 · straight', 'straight-hooked', t2StraightCount, t2Dia, straightBotLen(t2Dia)))
+  if (t2BentCount > 0) marks.push(mk('M6', 'Bottom L2 · bent-up', 'bent-truss', t2BentCount, t2Dia, bentBarLen(t2Dia)))
+  if (c1Count > 0) marks.push(mk('M7', 'Top hanger L1 · @ supports', 'L-hooked', c1Count * 2, c1Dia, hangerLen(c1Dia)))
+  if (c2Count > 0) marks.push(mk('M8', 'Top hanger L2 · @ supports', 'L-hooked', c2Count * 2, c2Dia, hangerLen(c2Dia)))
+  if (torsCount > 0) marks.push(mk('M9', 'Torsional / skin · pairs', 'straight-hooked', torsCount * 2, torsDia, span + 2 * ldh(torsDia)))
+  marks.push(mk('M10', `Stirrup · Ø${stirDia} closed tie`, 'stirrup', stirCount, stirDia, stirCutLen))
 
   marks.forEach(m => {
     if (m.cutLen > stockLen) {
