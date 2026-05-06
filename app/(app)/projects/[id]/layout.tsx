@@ -1,6 +1,8 @@
 import { notFound } from 'next/navigation'
 
 import { AssistantPanel } from '@/components/ai/AssistantPanel'
+import { ProjectCommandPalette } from '@/components/shell/ProjectCommandPalette'
+import { RightInspector } from '@/components/shell/RightInspector'
 import { Sidebar } from '@/components/shell/Sidebar'
 import { TopNav } from '@/components/shell/TopNav'
 import { getProject } from '@/lib/data/projects'
@@ -32,15 +34,14 @@ export default async function ProjectLayout({
           syncStatus,
         }}
       />
-      <div className="flex flex-col flex-1 min-w-0">
-        <TopNav title={project.name} />
-        <main
-          className="flex-1 overflow-auto p-4"
-          style={{ background: 'var(--color-bg)' }}
-        >
+      <div className="flex flex-col flex-1 min-w-0 center">
+        <TopNav title={project.name} projectId={project.id} codeStandard={project.code_standard} />
+        <main className="flex-1 overflow-auto canvas">
           {children}
         </main>
       </div>
+      <RightInspector />
+      <ProjectCommandPalette projectId={project.id} />
       <AssistantPanel projectId={project.id} />
     </>
   )
