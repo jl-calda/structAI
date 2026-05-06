@@ -10,6 +10,9 @@ import { DevSpliceCard } from './DevSpliceCard'
 import { Field2, Legend, RebarBlock } from './RebarBlock'
 import { RebarMTO } from './RebarMTO'
 import { RebarRow, type BentMode } from './RebarRow'
+import type { CodeStandard, Database } from '@/lib/supabase/types'
+
+type BeamCheckRow = Database['public']['Tables']['beam_checks']['Row']
 
 export type BeamDesignClientProps = {
   initial: {
@@ -22,13 +25,17 @@ export type BeamDesignClientProps = {
     fy: number
   }
   forces: { mPos: number; mNeg: number; vPeak: number }
+  /** Project's active design code — drives CalcBreakdownCard's CodeProvider. */
+  code_standard: CodeStandard
+  /** Persisted check row from the last `Run Design` (null = never run). */
+  checks: BeamCheckRow | null
 }
 
 type Section = 'start' | 'mid' | 'end'
 
 const isBentTo = (v: BentMode, sec: Section) => sec !== 'mid' && v === 'both'
 
-export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
+export function BeamDesignClient({ initial, forces, code_standard, checks }: BeamDesignClientProps) {
   const b = initial.b
   const h = initial.h
   const span = initial.span
@@ -388,6 +395,8 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
 
       {/* STEP 5 — Calculation Breakdown */}
       <CalcBreakdownCard
+        code_standard={code_standard}
+        checks={checks}
         b={b} h={h} cover={cover} fc={fc} fy={fy} span={span}
         perimDia={perimDia}
         t1Count={t1Count} t1Dia={t1Dia}
