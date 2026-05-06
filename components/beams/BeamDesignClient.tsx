@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { BeamCrossSection } from './BeamCrossSection'
 import { BeamElevation } from './BeamElevation'
+import { BeamElevation3D } from './BeamElevation3D'
 import { CalcBreakdownCard } from './CalcBreakdownCard'
 import { DevSpliceCard } from './DevSpliceCard'
 import { Field2, Legend, RebarBlock } from './RebarBlock'
@@ -59,6 +60,8 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
   const [stirLegs, setStirLegs] = useState<2 | 3 | 4 | 6>(2)
   const [stirSpacingEnd, setStirSpacingEnd] = useState(100)
   const [stirSpacingMid, setStirSpacingMid] = useState(200)
+
+  const [elevView, setElevView] = useState<'2d' | '3d'>('2d')
 
   useEffect(() => {
     setT1Bent(prev => {
@@ -326,21 +329,49 @@ export function BeamDesignClient({ initial, forces }: BeamDesignClientProps) {
           <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
             stirrup zones · top hangers · bent-up truss bars
           </span>
+          <div className="right">
+            <div className="toggle-strip" style={{ height: 22 }}>
+              <button type="button" className={elevView === '2d' ? 'active' : ''} onClick={() => setElevView('2d')} style={{ padding: '0 10px', fontSize: 10.5 }}>
+                2D
+              </button>
+              <button type="button" className={elevView === '3d' ? 'active' : ''} onClick={() => setElevView('3d')} style={{ padding: '0 10px', fontSize: 10.5 }}>
+                3D
+              </button>
+            </div>
+          </div>
         </div>
         <div className="card-b" style={{ padding: 10, display: 'flex', justifyContent: 'center' }}>
-          <BeamElevation
-            span={span} h={h} b={b} cover={cover}
-            perimDia={perimDia}
-            t1Count={t1Count} t1Dia={t1Dia} t1Bent={t1Bent}
-            t2Count={t2Count} t2Dia={t2Dia} t2Bent={t2Bent}
-            c1Count={c1Count} c1Dia={c1Dia}
-            c2Count={c2Count} c2Dia={c2Dia}
-            stirDia={stirDia}
-            stirSpacingEnd={stirSpacingEnd}
-            stirSpacingMid={stirSpacingMid}
-            bendL={bendL}
-            width={840} height={220}
-          />
+          {elevView === '2d' ? (
+            <BeamElevation
+              span={span} h={h} b={b} cover={cover}
+              perimDia={perimDia}
+              t1Count={t1Count} t1Dia={t1Dia} t1Bent={t1Bent}
+              t2Count={t2Count} t2Dia={t2Dia} t2Bent={t2Bent}
+              c1Count={c1Count} c1Dia={c1Dia}
+              c2Count={c2Count} c2Dia={c2Dia}
+              stirDia={stirDia}
+              stirSpacingEnd={stirSpacingEnd}
+              stirSpacingMid={stirSpacingMid}
+              bendL={bendL}
+              width={840} height={220}
+            />
+          ) : (
+            <BeamElevation3D
+              span={span} h={h} b={b} cover={cover}
+              perimDia={perimDia}
+              t1Count={t1Count} t1Dia={t1Dia} t1Bent={t1Bent}
+              t2Count={t2Count} t2Dia={t2Dia} t2Bent={t2Bent}
+              t2ClearGap={t2ClearGap}
+              c1Count={c1Count} c1Dia={c1Dia}
+              c2Count={c2Count} c2Dia={c2Dia}
+              c2ClearGap={c2ClearGap}
+              stirDia={stirDia}
+              stirSpacingEnd={stirSpacingEnd}
+              stirSpacingMid={stirSpacingMid}
+              bendL={bendL}
+              width={840} height={320}
+            />
+          )}
         </div>
       </div>
 
