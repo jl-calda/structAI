@@ -1,10 +1,13 @@
+/**
+ * Slab Design page — modern monochrome layout per Claude Design bundle.
+ * Slabs are standalone (no STAAD link).
+ */
 import { notFound } from 'next/navigation'
 
 import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
 import { PrintButton } from '@/components/ui/PrintButton'
 import { PrintHeader } from '@/components/ui/PrintHeader'
 import { RunSlabButton } from '@/components/slabs/RunSlabButton'
-import { Tag } from '@/components/ui/Tag'
 import { getProject } from '@/lib/data/projects'
 import { getSlabDesign } from '@/lib/data/slabs'
 
@@ -23,51 +26,78 @@ export default async function SlabDesignPage({
   if (!result || !project) notFound()
   const { design, rebar, checks } = result
 
+  const status: 'pass' | 'fail' | 'pending' =
+    design.design_status === 'pass' || design.design_status === 'fail'
+      ? design.design_status
+      : 'pending'
+
+  const wu = 1.2 * (design.dl_self_kpa + design.sdl_kpa) + 1.6 * design.ll_kpa
+
   return (
     <DesignErrorBoundary>
-    <div className="flex flex-col gap-4">
-      <PrintHeader
-        projectName={project.name}
-        designLabel={design.label}
-        designType="Slab Design"
-        codeStandard={project.code_standard}
-      />
-      <header className="flex flex-wrap items-baseline gap-3">
-        <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
-        <Tag variant="teal">{design.slab_type.replace('_', '-').toUpperCase()}</Tag>
-        <Tag variant="teal">NO STAAD LINK</Tag>
-        <StatusTag status={design.design_status} />
-        <span className="mono text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
-          {design.span_x_mm.toFixed(0)} × {design.span_y_mm.toFixed(0)} mm · t = {design.thickness_mm.toFixed(0)} mm
-        </span>
-        <div className="ml-auto flex gap-2">
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <PrintHeader
+          projectName={project.name}
+          designLabel={design.label}
+          designType="Slab Design"
+          codeStandard={project.code_standard}
+        />
+
+        {/* Header */}
+        <div className="row" style={{ padding: '2px 2px 4px', gap: 10, flexWrap: 'wrap' }}>
+          <span className="mono" style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em' }}>
+            {design.label}
+          </span>
+          <span className="tag tt">{design.slab_type.replace('_', '-').toUpperCase()}</span>
+          <span className="tag">STANDALONE</span>
+          <span className={'tag ' + (status === 'pass' ? 'pass' : status === 'fail' ? 'fail' : 'warn')}>
+            {status.toUpperCase()}
+          </span>
+          <span style={{ color: 'var(--color-ink-3)', fontSize: 11.5 }}>
+            {design.span_x_mm.toFixed(0)} × {design.span_y_mm.toFixed(0)} mm · t = {design.thickness_mm.toFixed(0)} mm
+          </span>
+          <div className="spacer" />
           <PrintButton />
           <RunSlabButton projectId={projectId} slabId={slabId} />
         </div>
-      </header>
 
-      <section className="grid grid-cols-[260px_minmax(0,1fr)_260px] gap-3">
+        {/* STEP 1 — Geometry & loads */}
         <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>Geometry</span>
+          <div className="card-h">
+            <span className="num-badge">1</span>
+            <span className="label">Geometry &amp; Loads</span>
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
+              spans · thickness · DL · SDL · LL · wu
+            </span>
           </div>
-          <div className="cb flex flex-col gap-1.5 text-[12px]">
-            <Row label="Type" value={design.slab_type.replace('_', '-')} />
-            <Row label="Lx" value={`${design.span_x_mm.toFixed(0)} mm`} />
-            <Row label="Ly" value={`${design.span_y_mm.toFixed(0)} mm`} />
-            <Row label="t" value={`${design.thickness_mm.toFixed(0)} mm`} />
-            <Row label="cover" value={`${design.clear_cover_mm.toFixed(0)} mm`} />
-            <Row label="f'c · fy" value={`${design.fc_mpa} · ${design.fy_mpa} MPa`} />
+          <div className="card-b" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <KvBlock title="Geometry">
+              <Kv k="Type" v={design.slab_type.replace('_', '-')} />
+              <Kv k="Lx" v={`${design.span_x_mm.toFixed(0)} mm`} />
+              <Kv k="Ly" v={`${design.span_y_mm.toFixed(0)} mm`} />
+              <Kv k="t" v={`${design.thickness_mm.toFixed(0)} mm`} />
+              <Kv k="cover" v={`${design.clear_cover_mm.toFixed(0)} mm`} />
+              <Kv k="f'c · fy" v={`${design.fc_mpa} · ${design.fy_mpa} MPa`} />
+            </KvBlock>
+            <KvBlock title="Loads (kPa)">
+              <Kv k="DL (self)" v={design.dl_self_kpa.toFixed(2)} />
+              <Kv k="SDL" v={design.sdl_kpa.toFixed(2)} />
+              <Kv k="LL" v={design.ll_kpa.toFixed(2)} />
+              <Kv k="wu = 1.2(D+SDL) + 1.6L" v={wu.toFixed(2)} accent />
+            </KvBlock>
           </div>
         </div>
 
+        {/* STEP 2 — Rebar plan */}
         <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>Rebar plan</span>
+          <div className="card-h">
+            <span className="num-badge">2</span>
+            <span className="label">Reinforcement Plan</span>
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
+              short-span amber · long-span blue
+            </span>
           </div>
-          <div className="cb flex items-center justify-center">
+          <div className="card-b" style={{ display: 'flex', justifyContent: 'center' }}>
             <SlabPlan
               Lx={design.span_x_mm}
               Ly={design.span_y_mm}
@@ -79,154 +109,134 @@ export default async function SlabDesignPage({
           </div>
         </div>
 
+        {/* STEP 3 — Checks */}
         <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>Loads</span>
+          <div className="card-h">
+            <span className="num-badge">3</span>
+            <span className="label">Check Results</span>
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
+              flexure both ways · shear · deflection
+            </span>
           </div>
-          <div className="cb flex flex-col gap-1.5 text-[12px]">
-            <Row label="DL (self)" value={`${design.dl_self_kpa.toFixed(2)} kPa`} />
-            <Row label="SDL" value={`${design.sdl_kpa.toFixed(2)} kPa`} />
-            <Row label="LL" value={`${design.ll_kpa.toFixed(2)} kPa`} />
+          <div className="card-b">
             {checks ? (
-              <Row label="wu" value={`${((1.2 * (design.dl_self_kpa + design.sdl_kpa) + 1.6 * design.ll_kpa)).toFixed(2)} kPa`} />
-            ) : null}
-          </div>
-        </div>
-      </section>
-
-      {checks ? (
-        <section className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>Checks</span>
-          </div>
-          <div className="cb">
-            <table className="t">
-              <tbody>
-                <CheckRow
-                  label="Flexure short span"
-                  value={`${checks.phi_mn_x_knm_per_m.toFixed(1)} ≥ ${checks.mu_x_knm_per_m.toFixed(1)} kN·m/m`}
-                  pass={checks.flexure_x_status === 'pass'}
-                />
-                {design.slab_type !== 'one_way' ? (
+              <table className="t">
+                <thead>
+                  <tr>
+                    <th>Check</th>
+                    <th>Demand vs capacity</th>
+                    <th style={{ textAlign: 'right' }}>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
                   <CheckRow
-                    label="Flexure long span"
-                    value={`${checks.phi_mn_y_knm_per_m.toFixed(1)} ≥ ${checks.mu_y_knm_per_m.toFixed(1)} kN·m/m`}
-                    pass={checks.flexure_y_status === 'pass'}
+                    label="Flexure short span"
+                    value={`${checks.phi_mn_x_knm_per_m.toFixed(1)} ≥ ${checks.mu_x_knm_per_m.toFixed(1)} kN·m/m`}
+                    pass={checks.flexure_x_status === 'pass'}
                   />
-                ) : null}
-                <CheckRow
-                  label="Shear"
-                  value={`${checks.phi_vn_kn_per_m.toFixed(1)} ≥ ${checks.vu_kn_per_m.toFixed(1)} kN/m`}
-                  pass={checks.shear_status === 'pass'}
-                />
-                <CheckRow
-                  label="Deflection (l/d vs code min thickness)"
-                  value={checks.deflection_ok ? 'ok' : 'too thin'}
-                  pass={checks.deflection_ok}
-                />
-                <CheckRow label="Code" value={checks.code_standard.replace(/_/g, ' ')} pass />
-              </tbody>
-            </table>
+                  {design.slab_type !== 'one_way' && (
+                    <CheckRow
+                      label="Flexure long span"
+                      value={`${checks.phi_mn_y_knm_per_m.toFixed(1)} ≥ ${checks.mu_y_knm_per_m.toFixed(1)} kN·m/m`}
+                      pass={checks.flexure_y_status === 'pass'}
+                    />
+                  )}
+                  <CheckRow
+                    label="Shear"
+                    value={`${checks.phi_vn_kn_per_m.toFixed(1)} ≥ ${checks.vu_kn_per_m.toFixed(1)} kN/m`}
+                    pass={checks.shear_status === 'pass'}
+                  />
+                  <CheckRow
+                    label="Deflection (l/d vs code min)"
+                    value={checks.deflection_ok ? 'ok' : 'too thin'}
+                    pass={checks.deflection_ok}
+                  />
+                  <CheckRow label="Code" value={checks.code_standard.replace(/_/g, ' ')} pass />
+                </tbody>
+              </table>
+            ) : (
+              <p style={{ fontSize: 11.5, color: 'var(--color-ink-3)' }}>
+                No design results yet. Run design to check flexure + shear per metre strip.
+              </p>
+            )}
           </div>
-        </section>
-      ) : (
-        <div className="rounded px-3 py-2 text-[11.5px]"
-             style={{ background: 'var(--color-amber-l)', color: 'var(--color-amber)' }}>
-          No design results yet. Click <span className="font-semibold">Run design</span> to check flexure and shear per metre strip.
         </div>
-      )}
-    </div>
+      </div>
     </DesignErrorBoundary>
+  )
+}
+
+function KvBlock({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="sub-label" style={{ marginBottom: 4 }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</div>
+    </div>
+  )
+}
+
+function Kv({ k, v, accent }: { k: string; v: string; accent?: boolean }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, padding: '2px 0' }}>
+      <span style={{ color: 'var(--color-ink-3)' }}>{k}</span>
+      <span className="mono" style={{ color: accent ? 'var(--color-sel)' : 'var(--color-ink)', fontWeight: accent ? 600 : 400 }}>{v}</span>
+    </div>
+  )
+}
+
+function CheckRow({ label, value, pass }: { label: string; value: string; pass: boolean }) {
+  return (
+    <tr className={pass ? '' : 'fail'}>
+      <td>{label}</td>
+      <td className="num">{value}</td>
+      <td style={{ textAlign: 'right', color: pass ? 'var(--color-pass)' : 'var(--color-fail)', fontWeight: 600 }}>
+        {pass ? '✓ PASS' : '✗ FAIL'}
+      </td>
+    </tr>
   )
 }
 
 function SlabPlan({
   Lx, Ly, shortSpacing, longSpacing, shortDia, longDia,
 }: {
-  Lx: number; Ly: number; shortSpacing: number; longSpacing: number
-  shortDia: number; longDia: number
+  Lx: number
+  Ly: number
+  shortSpacing: number
+  longSpacing: number
+  shortDia: number
+  longDia: number
 }) {
-  const width = 420, height = 260
-  const pad = 24
-  const drawW = width - 2 * pad, drawH = height - 2 * pad
+  const width = 480
+  const height = 280
+  const pad = 30
+  const drawW = width - 2 * pad
+  const drawH = height - 2 * pad
   const scale = Math.min(drawW / Lx, drawH / Ly)
-  const w = Lx * scale, h = Ly * scale
-  const x0 = (width - w) / 2, y0 = (height - h) / 2
+  const w = Lx * scale
+  const h = Ly * scale
+  const x0 = (width - w) / 2
+  const y0 = (height - h) / 2
 
-  // Short-direction bars (amber, horizontal since short = x in spec).
   const shortCount = shortSpacing > 0 ? Math.floor(Ly / shortSpacing) + 1 : 0
   const longCount = longSpacing > 0 ? Math.floor(Lx / longSpacing) + 1 : 0
+
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}
-         role="img" aria-label="Slab rebar plan">
-      <rect x={x0} y={y0} width={w} height={h}
-            fill="#E8E4DC" stroke="#4A4038" strokeWidth={2} />
-      {/* Short-direction bars (running along x) */}
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <rect x={x0} y={y0} width={w} height={h} fill="#ECEAE4" stroke="#4A4038" strokeWidth={2} />
       {Array.from({ length: shortCount }).map((_, i) => {
         const y = y0 + (h / Math.max(1, shortCount - 1)) * i
-        return (
-          <line key={`sh-${i}`} x1={x0} y1={y} x2={x0 + w} y2={y}
-                stroke="#D4820F" strokeWidth={0.7} />
-        )
+        return <line key={`sh-${i}`} x1={x0} y1={y} x2={x0 + w} y2={y} stroke="#D4820F" strokeWidth={0.7} />
       })}
-      {/* Long-direction bars (running along y) — semi-transparent blue */}
       {Array.from({ length: longCount }).map((_, i) => {
         const x = x0 + (w / Math.max(1, longCount - 1)) * i
-        return (
-          <line key={`lo-${i}`} x1={x} y1={y0} x2={x} y2={y0 + h}
-                stroke="#1755A0" strokeWidth={0.6} strokeOpacity={0.55} />
-        )
+        return <line key={`lo-${i}`} x1={x} y1={y0} x2={x} y2={y0 + h} stroke="#1755A0" strokeWidth={0.6} strokeOpacity={0.55} />
       })}
-      <g fontFamily="IBM Plex Mono" fontSize={9} fill="#6A6560">
-        <text x={x0 + w / 2} y={y0 - 8} textAnchor="middle">
-          Ø{shortDia}@{shortSpacing} (bot, short)
-        </text>
-        <text x={x0 + w + 8} y={y0 + h / 2} textAnchor="start">
-          Ø{longDia}@{longSpacing}
-        </text>
-        <text x={x0 + w / 2} y={y0 + h + 16} textAnchor="middle">
-          Lx = {Lx.toFixed(0)} mm
-        </text>
-        <text x={x0 - 8} y={y0 + h / 2} textAnchor="end">
-          Ly = {Ly.toFixed(0)} mm
-        </text>
+      <g fontFamily="JetBrains Mono" fontSize={9} fill="#6B7079">
+        <text x={x0 + w / 2} y={y0 - 8} textAnchor="middle">Ø{shortDia}@{shortSpacing} (short)</text>
+        <text x={x0 + w + 8} y={y0 + h / 2} dominantBaseline="middle">Ø{longDia}@{longSpacing}</text>
+        <text x={x0 + w / 2} y={y0 + h + 16} textAnchor="middle">Lx = {Lx.toFixed(0)} mm</text>
+        <text x={x0 - 8} y={y0 + h / 2} textAnchor="end" dominantBaseline="middle">Ly = {Ly.toFixed(0)} mm</text>
       </g>
     </svg>
-  )
-}
-
-function StatusTag({ status }: { status: string }) {
-  switch (status) {
-    case 'pass': return <Tag variant="green">PASS</Tag>
-    case 'fail': return <Tag variant="red">FAIL</Tag>
-    case 'unverified': return <Tag variant="amber">UNVERIFIED</Tag>
-    default: return <Tag variant="amber">PENDING</Tag>
-  }
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
-      <span className="uppercase tracking-wider" style={{ color: 'var(--color-text2)' }}>
-        {label}
-      </span>
-      <span className="mono">{value}</span>
-    </div>
-  )
-}
-
-function CheckRow({ label, value, pass }: {
-  label: string; value: string; pass: boolean
-}) {
-  return (
-    <tr>
-      <td>{label}</td>
-      <td className="num mono" style={{ textAlign: 'right' }}>{value}</td>
-      <td style={{ textAlign: 'right', color: pass ? 'var(--color-green)' : 'var(--color-red)', fontWeight: 600 }}>
-        {pass ? '✓' : '✗'}
-      </td>
-    </tr>
   )
 }
