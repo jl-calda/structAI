@@ -2,15 +2,17 @@
 
 import { useMemo, useState } from 'react'
 
-import { Tag } from '@/components/ui/Tag'
-import type { MemberType } from '@/lib/supabase/types'
+import { Icon } from '@/components/ui/Icon'
 
 type MemberLite = {
   id: string
   member_id: number
-  member_type: MemberType
+  member_type: 'beam' | 'column' | 'brace' | 'other'
   section_name: string
   length_mm: number
+  status?: 'pass' | 'fail' | 'warn' | 'pending'
+  metric?: number | null
+  metric_label?: 'Mu' | 'Ratio' | null
 }
 
 type Filter = 'all' | 'beam' | 'column'
@@ -22,15 +24,24 @@ export function MembersTable({ members }: { members: MemberLite[] }) {
   const counts = useMemo(
     () => ({
       all: members.length,
-      beam: members.filter((m) => m.member_type === 'beam').length,
-      column: members.filter((m) => m.member_type === 'column').length,
+      beam: members.filter(m => m.member_type === 'beam').length,
+      column: members.filter(m => m.member_type === 'column').length,
+    }),
+    [members],
+  )
+
+  const statusCounts = useMemo(
+    () => ({
+      pass: members.filter(m => m.status === 'pass').length,
+      warn: members.filter(m => m.status === 'warn').length,
+      fail: members.filter(m => m.status === 'fail').length,
     }),
     [members],
   )
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return members.filter((m) => {
+    return members.filter(m => {
       if (filter === 'beam' && m.member_type !== 'beam') return false
       if (filter === 'column' && m.member_type !== 'column') return false
       if (!q) return true
@@ -43,48 +54,41 @@ export function MembersTable({ members }: { members: MemberLite[] }) {
   }, [members, filter, query])
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-3">
-        <div
-          className="flex items-center gap-1 rounded border p-0.5 text-[11.5px]"
-          style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface)' }}
-        >
-          <FilterTab
-            active={filter === 'all'}
-            label="All"
-            count={counts.all}
-            onClick={() => setFilter('all')}
-          />
-          <FilterTab
-            active={filter === 'beam'}
-            label="Beams"
-            count={counts.beam}
-            onClick={() => setFilter('beam')}
-          />
-          <FilterTab
-            active={filter === 'column'}
-            label="Columns"
-            count={counts.column}
-            onClick={() => setFilter('column')}
+    <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* Header strip — filter toggle + search + status pills */}
+      <div className="row" style={{ flexWrap: 'wrap' }}>
+        <div className="toggle-strip">
+          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
+            All ({counts.all})
+          </button>
+          <button type="button" className={filter === 'beam' ? 'active' : ''} onClick={() => setFilter('beam')}>
+            Beams ({counts.beam})
+          </button>
+          <button type="button" className={filter === 'column' ? 'active' : ''} onClick={() => setFilter('column')}>
+            Columns ({counts.column})
+          </button>
+        </div>
+        <div className="search" style={{ width: 220 }}>
+          <Icon name="search" size={13} />
+          <input
+            placeholder="Filter by ID / section / type…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
           />
         </div>
-        <input
-          type="search"
-          placeholder="Search by ID / section / type…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 max-w-sm rounded border px-2 py-1.5 text-[12px]"
-          style={{ borderColor: 'var(--color-border)' }}
-        />
-        <div className="ml-auto mono text-[11.5px]"
-             style={{ color: 'var(--color-text2)' }}>
-          0 designed · {filtered.length} unassigned
-        </div>
+        <div className="spacer" />
+        <span className="mono" style={{ fontSize: 11, color: 'var(--color-ink-3)', display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--color-pass)' }}>{statusCounts.pass} pass</span>
+          <span>·</span>
+          <span style={{ color: 'var(--color-warn)' }}>{statusCounts.warn} warn</span>
+          <span>·</span>
+          <span style={{ color: 'var(--color-fail)' }}>{statusCounts.fail} fail</span>
+        </span>
       </div>
 
       <div className="card">
         {filtered.length === 0 ? (
-          <div className="cb text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
+          <div className="cb" style={{ fontSize: 11.5, color: 'var(--color-ink-3)' }}>
             {members.length === 0
               ? 'No members in this project. Run the bridge to sync STAAD geometry.'
               : 'No members match the current filter.'}
@@ -93,48 +97,48 @@ export function MembersTable({ members }: { members: MemberLite[] }) {
           <table className="t">
             <thead>
               <tr>
-                <th>Member</th>
-                <th>Type</th>
+                <th style={{ width: 80 }}>ID</th>
+                <th style={{ width: 60 }}>Type</th>
                 <th>Section</th>
-                <th className="!text-right">Length (mm)</th>
-                <th>Group</th>
-                <th>Assigned Design</th>
-                <th>Status</th>
-                <th className="!text-right">Action</th>
+                <th className="num" style={{ width: 110, textAlign: 'right' }}>Length (mm)</th>
+                <th className="num" style={{ width: 110, textAlign: 'right' }}>Mu / Ratio</th>
+                <th style={{ width: 80 }}>Status</th>
+                <th style={{ width: 80, textAlign: 'right' }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((m) => (
-                <tr key={m.id}>
-                  <td className="num font-semibold">{m.member_id}</td>
+              {filtered.map(m => (
+                <tr key={m.id} className={m.status === 'fail' ? 'fail' : ''}>
                   <td>
-                    {m.member_type === 'beam' ? (
-                      <Tag variant="amber">BEAM</Tag>
-                    ) : m.member_type === 'column' ? (
-                      <Tag variant="blue">COLUMN</Tag>
+                    <span className="mono" style={{ fontWeight: 600 }}>{m.member_id}</span>
+                  </td>
+                  <td>
+                    <span className="tag">{m.member_type.toUpperCase()}</span>
+                  </td>
+                  <td className="num" style={{ color: 'var(--color-ink-2)' }}>{m.section_name}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{m.length_mm.toFixed(0)}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>
+                    {m.metric != null ? (
+                      <span>
+                        {m.metric.toFixed(m.metric_label === 'Ratio' ? 2 : 1)}
+                        {m.metric_label === 'Mu' ? ' kN·m' : ''}
+                      </span>
                     ) : (
-                      <Tag variant="teal">{m.member_type.toUpperCase()}</Tag>
+                      <span style={{ color: 'var(--color-ink-4)' }}>—</span>
                     )}
                   </td>
-                  <td className="mono">{m.section_name}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>
-                    {m.length_mm.toFixed(0)}
-                  </td>
-                  <td>—</td>
-                  <td style={{ color: 'var(--color-text2)' }}>none</td>
                   <td>
-                    <Tag variant="amber">UNASSIGNED</Tag>
+                    <span className={'tag ' + statusClass(m.status)}>
+                      {(m.status ?? 'pending').toUpperCase()}
+                    </span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     <button
                       type="button"
                       disabled
-                      className="rounded px-2 py-1 text-[11.5px] font-semibold disabled:opacity-60 cursor-not-allowed"
-                      style={{
-                        border: '1px solid var(--color-border)',
-                        color: 'var(--color-text2)',
-                      }}
-                      title="Design assignment lands in Phase 3"
+                      className="btn sm"
+                      style={{ opacity: 0.6, cursor: 'not-allowed' }}
+                      title="Design assignment in Phase 3"
                     >
                       Assign
                     </button>
@@ -149,28 +153,9 @@ export function MembersTable({ members }: { members: MemberLite[] }) {
   )
 }
 
-function FilterTab({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean
-  label: string
-  count: number
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded px-2 py-1 font-medium transition-colors"
-      style={{
-        background: active ? 'var(--color-amber-l)' : 'transparent',
-        color: active ? 'var(--color-amber)' : 'var(--color-text2)',
-      }}
-    >
-      {label} <span className="mono">{count}</span>
-    </button>
-  )
+function statusClass(s?: 'pass' | 'fail' | 'warn' | 'pending') {
+  if (s === 'pass') return 'pass'
+  if (s === 'fail') return 'fail'
+  if (s === 'warn') return 'warn'
+  return ''
 }

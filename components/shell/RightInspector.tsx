@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 import { Icon } from '@/components/ui/Icon'
 import { useResizable } from '@/lib/hooks/useResizable'
@@ -20,7 +21,43 @@ export type InspectorData = {
   stirrupZones?: { zone: string; region: string; spacing: string; n: number }[]
 }
 
-export function RightInspector({ data }: { data?: InspectorData }) {
+function parseRoute(pathname: string): { projectId: string; kind: 'beam' | 'column' | 'slab' | 'footing'; id: string } | null {
+  const m = pathname.match(/^\/projects\/([^/]+)\/(beams|columns|slabs|footings)\/([^/]+)/)
+  if (!m) return null
+  const folder = m[2]
+  const kind = folder === 'beams' ? 'beam' : folder === 'columns' ? 'column' : folder === 'slabs' ? 'slab' : 'footing'
+  return { projectId: m[1], kind, id: m[3] }
+}
+
+export function RightInspector({ data: initialData }: { data?: InspectorData }) {
+  const pathname = usePathname()
+  const [data, setData] = useState<InspectorData | undefined>(initialData)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const route = parseRoute(pathname)
+    if (!route) {
+      setData(undefined)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    fetch(`/api/inspector?projectId=${encodeURIComponent(route.projectId)}&kind=${route.kind}&id=${encodeURIComponent(route.id)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then((json: { ok: boolean; data?: InspectorData; error?: string }) => {
+        if (cancelled) return
+        if (json.ok && json.data) setData(json.data)
+        else setData(undefined)
+      })
+      .catch(() => { if (!cancelled) setData(undefined) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [pathname])
+
+  return <RightInspectorView data={data} loading={loading} />
+}
+
+function RightInspectorView({ data, loading }: { data?: InspectorData; loading?: boolean }) {
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'inspect' | 'staad' | 'checks'>('inspect')
   const [w, startDrag] = useResizable(300, 220, 520, 'right', 'structai.right.w')
@@ -57,7 +94,11 @@ export function RightInspector({ data }: { data?: InspectorData }) {
         </div>
       </div>
       <div className="insp-content">
-        {!data ? (
+        {loading && !data ? (
+          <div className="insp-section">
+            <p style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>Loading…</p>
+          </div>
+        ) : !data ? (
           <div className="insp-section">
             <p style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>
               Select a beam, column, slab or footing to see its details here.

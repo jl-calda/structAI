@@ -51,3 +51,20 @@ export async function createProject(formData: FormData) {
   revalidatePath('/dashboard')
   redirect(`/projects/${data.id}`)
 }
+
+export async function setProjectCodeStandardAction(
+  projectId: string,
+  next: CodeStandard,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!CODE_STANDARDS.includes(next)) {
+    return { ok: false, error: 'Invalid code standard.' }
+  }
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('projects')
+    .update({ code_standard: next })
+    .eq('id', projectId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath(`/projects/${projectId}`)
+  return { ok: true }
+}
