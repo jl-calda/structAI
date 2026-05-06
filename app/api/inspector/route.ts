@@ -14,7 +14,10 @@ import { getBeamDesign } from '@/lib/data/beams'
 import { getColumnDesign } from '@/lib/data/columns'
 import { getFootingDesign } from '@/lib/data/footings'
 import { getSlabDesign } from '@/lib/data/slabs'
+import { getLatestSync } from '@/lib/data/staad'
+import { shortHash } from '@/lib/format'
 import { createServiceClient } from '@/lib/supabase/service'
+import type { BeamStirrupZone } from '@/lib/supabase/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -26,14 +29,37 @@ export async function GET(request: NextRequest) {
   const id = sp.get('id') ?? ''
   if (!projectId || !kind || !id) return fail('missing query params', 400)
 
-  if (kind === 'beam') return ok(await beamInspector(id, projectId))
-  if (kind === 'column') return ok(await columnInspector(id))
-  if (kind === 'slab') return ok(await slabInspector(id))
-  if (kind === 'footing') return ok(await footingInspector(id))
+  const latest = await getLatestSync(projectId).catch(() => null)
+  const sync: { k: string; v: string }[] | undefined = latest
+    ? [
+        { k: '.std', v: latest.row.file_name },
+        { k: 'Hash', v: shortHash(latest.row.file_hash) },
+        { k: 'Units', v: latest.row.unit_system ?? 'unknown' },
+        { k: 'Last sync', v: latest.row.synced_at.slice(0, 16).replace('T', ' ') },
+      ]
+    : undefined
+
+  if (kind === 'beam') return ok(await beamInspector(id, projectId, sync))
+  if (kind === 'column') return ok(await columnInspector(id, sync))
+  if (kind === 'slab') return ok(await slabInspector(id, sync))
+  if (kind === 'footing') return ok(await footingInspector(id, sync))
   return fail('unknown kind', 400)
 }
 
-async function beamInspector(id: string, projectId: string): Promise<InspectorData | null> {
+function zoneRegion(z: BeamStirrupZone): string {
+  return `${Math.round(z.start_mm)}–${Math.round(z.end_mm)}`
+}
+
+function zoneNumStirrups(z: BeamStirrupZone): number {
+  if (z.spacing_mm <= 0) return 0
+  return Math.max(1, Math.ceil((z.end_mm - z.start_mm) / z.spacing_mm))
+}
+
+async function beamInspector(
+  id: string,
+  projectId: string,
+  sync: { k: string; v: string }[] | undefined,
+): Promise<InspectorData | null> {
   const result = await getBeamDesign(id)
   if (!result) return null
   const { design, rebar, checks } = result
@@ -106,16 +132,29 @@ async function beamInspector(id: string, projectId: string): Promise<InspectorDa
       },
     ] : undefined,
     staadCode,
+    sync,
     checks: checks ? [
       { k: '+ Flexure', v: `φMn = ${checks.phi_mn_pos_knm.toFixed(1)} ≥ Mu = ${checks.mu_pos_knm.toFixed(1)} kN·m`, pass: checks.flexure_pos_status === 'pass' },
       { k: '− Flexure', v: `φMn = ${checks.phi_mn_neg_knm.toFixed(1)} ≥ Mu = ${checks.mu_neg_knm.toFixed(1)} kN·m`, pass: checks.flexure_neg_status === 'pass' },
       { k: 'Shear', v: `φVn = ${checks.phi_vn_kn.toFixed(1)} ≥ Vu = ${checks.vu_max_kn.toFixed(1)} kN`, pass: checks.shear_status === 'pass' },
     ] : undefined,
-    stirrupZones: undefined,
+    stirrupZones: rebar?.stirrup_zones
+      ? (rebar.stirrup_zones as BeamStirrupZone[])
+          .sort((a, b) => a.start_mm - b.start_mm)
+          .map((z, i) => ({
+            zone: `Z${i + 1}`,
+            region: zoneRegion(z),
+            spacing: z.spacing_mm.toFixed(0),
+            n: zoneNumStirrups(z),
+          }))
+      : undefined,
   }
 }
 
-async function columnInspector(id: string): Promise<InspectorData | null> {
+async function columnInspector(
+  id: string,
+  sync: { k: string; v: string }[] | undefined,
+): Promise<InspectorData | null> {
   const result = await getColumnDesign(id)
   if (!result) return null
   const { design, rebar, checks } = result
@@ -151,6 +190,7 @@ async function columnInspector(id: string): Promise<InspectorData | null> {
       { k: 'ρ', v: `${checks.rho_percent.toFixed(2)}%`, tone: checks.rho_min_ok && checks.rho_max_ok ? 'pass' as const : 'fail' as const },
       { k: 'Status', v: (checks.overall_status ?? 'pending').toUpperCase(), tone: checks.overall_status === 'pass' ? 'pass' as const : 'fail' as const },
     ] : undefined,
+    sync,
     checks: checks ? [
       { k: 'Interaction', v: `ratio = ${(checks.interaction_ratio * 100).toFixed(0)}%`, pass: checks.interaction_ratio <= 1 },
       { k: 'Shear', v: `φVn = ${checks.phi_vn_kn.toFixed(1)} ≥ Vu = ${checks.vu_kn.toFixed(1)} kN`, pass: checks.shear_status === 'pass' },
@@ -159,7 +199,10 @@ async function columnInspector(id: string): Promise<InspectorData | null> {
   }
 }
 
-async function slabInspector(id: string): Promise<InspectorData | null> {
+async function slabInspector(
+  id: string,
+  sync: { k: string; v: string }[] | undefined,
+): Promise<InspectorData | null> {
   const result = await getSlabDesign(id)
   if (!result) return null
   const { design, rebar, checks } = result
@@ -191,6 +234,7 @@ async function slabInspector(id: string): Promise<InspectorData | null> {
       { k: 'Short bars', v: `Ø${rebar.bar_dia_short_mm}@${rebar.spacing_short_mm}` },
       { k: 'Long bars', v: `Ø${rebar.bar_dia_long_mm}@${rebar.spacing_long_mm}` },
     ] : undefined,
+    sync,
     checks: checks ? [
       { k: 'Flexure short', v: `φMn = ${checks.phi_mn_x_knm_per_m.toFixed(1)} ≥ Mu = ${checks.mu_x_knm_per_m.toFixed(1)}`, pass: checks.flexure_x_status === 'pass' },
       { k: 'Flexure long', v: `φMn = ${checks.phi_mn_y_knm_per_m.toFixed(1)} ≥ Mu = ${checks.mu_y_knm_per_m.toFixed(1)}`, pass: checks.flexure_y_status === 'pass' },
@@ -200,7 +244,10 @@ async function slabInspector(id: string): Promise<InspectorData | null> {
   }
 }
 
-async function footingInspector(id: string): Promise<InspectorData | null> {
+async function footingInspector(
+  id: string,
+  sync: { k: string; v: string }[] | undefined,
+): Promise<InspectorData | null> {
   const result = await getFootingDesign(id)
   if (!result) return null
   const { design, checks } = result
@@ -226,6 +273,7 @@ async function footingInspector(id: string): Promise<InspectorData | null> {
       { k: 'Mu', v: `${checks.mu_knm.toFixed(1)} kN·m` },
       { k: 'q net', v: `${checks.q_net_kpa.toFixed(1)} kPa` },
     ] : undefined,
+    sync,
     checks: checks ? [
       { k: 'Bearing', v: `q = ${checks.q_net_kpa.toFixed(1)} ≤ qa = ${design.bearing_capacity_kpa.toFixed(1)}`, pass: checks.bearing_status === 'pass' },
       { k: 'One-way shear', v: `φVc = ${checks.phi_vn_oneway_kn.toFixed(1)} kN`, pass: checks.shear_oneway_status === 'pass' },
