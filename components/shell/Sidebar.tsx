@@ -1,24 +1,21 @@
 /**
- * Sidebar — 184px, dark chrome.
- * Top nav structure from docs/09-pages.md:
+ * Sidebar — server component that fetches project tree data and hands
+ * it off to the interactive client component for rendering.
  *
- *   [Dashboard]
- *   ── divider ──
- *   [Project name + sync dot]
- *     Overview · Setup · Members · Load Combos
- *   ── divider ──
- *   Design
- *     Beams · Columns · Slabs · Footings
- *   ── divider ──
- *   Material Takeoff · Reports
- *   ── bottom ──
- *   [Engineer name | Code standard]
- *
- * The project section only renders when a project is active.
+ * Layout (per design bundle):
+ *   - Project chip (name, id, code, sync pill)
+ *   - Navigate section (Dashboard, Overview, Setup, Members, Combos)
+ *   - Design section (Beams, Columns, Slabs, Footings, MTO, Reports)
+ *   - Project Tree (collapsible groups: Beams/Columns/Slabs/Footings, status dots)
+ *   - Engineer footer
  */
-import Link from 'next/link'
+import { listBeamDesigns } from '@/lib/data/beams'
+import { listColumnDesigns } from '@/lib/data/columns'
+import { listFootingDesigns } from '@/lib/data/footings'
+import { listSlabDesigns } from '@/lib/data/slabs'
+import type { CodeStandard, DesignStatus } from '@/lib/supabase/types'
 
-import type { CodeStandard } from '@/lib/supabase/types'
+import { SidebarClient, type TreeItem } from './SidebarClient'
 
 type ProjectContext = {
   id: string
@@ -35,119 +32,71 @@ const codeLabels: Record<CodeStandard, string> = {
   CSA_A23_3_19: 'CSA A23.3-19',
 }
 
-export function Sidebar({
+function statusToDot(s: DesignStatus): 'pass' | 'fail' | 'warn' | 'pending' {
+  if (s === 'pass') return 'pass'
+  if (s === 'fail') return 'fail'
+  if (s === 'unverified') return 'warn'
+  return 'pending'
+}
+
+export async function Sidebar({
   engineerName = 'Engineer',
   project,
 }: {
   engineerName?: string
   project?: ProjectContext
 }) {
-  const projectBase = project ? `/projects/${project.id}` : null
+  let beams: TreeItem[] = []
+  let columns: TreeItem[] = []
+  let slabs: TreeItem[] = []
+  let footings: TreeItem[] = []
+
+  if (project) {
+    const [b, c, s, f] = await Promise.all([
+      listBeamDesigns(project.id),
+      listColumnDesigns(project.id),
+      listSlabDesigns(project.id),
+      listFootingDesigns(project.id),
+    ])
+    beams = b.map((d) => ({
+      id: d.id,
+      label: d.label,
+      meta: d.section_name,
+      status: statusToDot(d.design_status),
+      href: `/projects/${project.id}/beams/${d.id}`,
+    }))
+    columns = c.map((d) => ({
+      id: d.id,
+      label: d.label,
+      meta: d.section_name,
+      status: statusToDot(d.design_status),
+      href: `/projects/${project.id}/columns/${d.id}`,
+    }))
+    slabs = s.map((d) => ({
+      id: d.id,
+      label: d.label,
+      meta: `${d.span_x_mm.toFixed(0)}×${d.span_y_mm.toFixed(0)}`,
+      status: statusToDot(d.design_status),
+      href: `/projects/${project.id}/slabs/${d.id}`,
+    }))
+    footings = f.map((d) => ({
+      id: d.id,
+      label: d.label,
+      meta: `${d.length_x_mm.toFixed(0)}×${d.width_y_mm.toFixed(0)}`,
+      status: statusToDot(d.design_status),
+      href: `/projects/${project.id}/footings/${d.id}`,
+    }))
+  }
 
   return (
-    <aside
-      className="flex flex-col w-[184px] shrink-0 border-r"
-      style={{
-        background: 'var(--color-chrome-sidebar)',
-        borderColor: 'var(--color-chrome-border)',
-        color: 'var(--color-chrome-text)',
-      }}
-    >
-      <nav className="flex-1 py-3 text-[12px]">
-        <NavItem href="/dashboard" label="Dashboard" top />
-
-        {project && projectBase ? (
-          <>
-            <Divider />
-            <div className="px-3 pb-1 pt-1 flex items-center gap-2 text-[11px]"
-                 style={{ color: 'var(--color-chrome-text)' }}>
-              <span
-                aria-hidden
-                className="inline-block h-[6px] w-[6px] rounded-full"
-                style={{ background: dotColor(project.syncStatus) }}
-              />
-              <span className="mono truncate">{project.name}</span>
-            </div>
-            <NavItem href={projectBase} label="Overview" />
-            <NavItem href={`${projectBase}/setup`} label="Setup" />
-            <NavItem href={`${projectBase}/members`} label="Members" />
-            <NavItem href={`${projectBase}/combinations`} label="Load Combos" />
-
-            <Divider />
-            <SectionLabel>Design</SectionLabel>
-            <NavItem href={`${projectBase}/beams`} label="Beams" />
-            <NavItem href={`${projectBase}/columns`} label="Columns" />
-            <NavItem href={`${projectBase}/slabs`} label="Slabs" />
-            <NavItem href={`${projectBase}/footings`} label="Footings" />
-
-            <Divider />
-            <NavItem href={`${projectBase}/mto`} label="Material Takeoff" />
-            <NavItem href={`${projectBase}/reports`} label="Reports" />
-          </>
-        ) : null}
-      </nav>
-
-      <div
-        className="px-3 py-3 border-t text-[10.5px]"
-        style={{
-          borderColor: 'var(--color-chrome-border)',
-          color: 'var(--color-chrome-text2)',
-        }}
-      >
-        <div>{engineerName}</div>
-        <div className="mono">
-          {project ? codeLabels[project.codeStandard] : '—'}
-        </div>
-      </div>
-    </aside>
-  )
-}
-
-function NavItem({
-  href,
-  label,
-  top = false,
-}: {
-  href: string
-  label: string
-  top?: boolean
-}) {
-  return (
-    <Link
-      href={href}
-      className={
-        'block px-3 py-1.5 hover:bg-white/5 transition-colors ' +
-        (top ? 'font-semibold' : '')
+    <SidebarClient
+      engineerName={engineerName}
+      project={
+        project
+          ? { ...project, codeLabel: codeLabels[project.codeStandard] }
+          : undefined
       }
-      style={{ color: 'var(--color-chrome-text)' }}
-    >
-      {label}
-    </Link>
-  )
-}
-
-function Divider() {
-  return (
-    <div
-      className="mx-3 my-2 border-t"
-      style={{ borderColor: 'var(--color-chrome-border)' }}
+      tree={{ beams, columns, slabs, footings }}
     />
   )
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="px-3 pb-1 pt-1 text-[9.5px] uppercase tracking-wider"
-      style={{ color: 'var(--color-chrome-text2)' }}
-    >
-      {children}
-    </div>
-  )
-}
-
-function dotColor(status: ProjectContext['syncStatus']) {
-  if (status === 'green') return 'var(--color-green)'
-  if (status === 'amber') return 'var(--color-amber)'
-  return 'var(--color-red)'
 }

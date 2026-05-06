@@ -1,19 +1,30 @@
+/**
+ * Column Design page — modern monochrome layout per Claude Design bundle.
+ *
+ * Sections:
+ *   1. Member Properties (geometry, materials, slenderness)
+ *   2. Reinforcement & Cross-section (rebar editor + live preview)
+ *   3. P-M Interaction Diagram
+ *   4. Check Results (forces / interaction / shear / ties)
+ */
 import { notFound } from 'next/navigation'
 
-import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
-import { PrintButton } from '@/components/ui/PrintButton'
-import { PrintHeader } from '@/components/ui/PrintHeader'
 import { ColumnCrossSection } from '@/components/columns/ColumnCrossSection'
+import { ColumnPropertiesCard } from '@/components/columns/ColumnPropertiesCard'
 import { ColumnRebarEditor } from '@/components/columns/ColumnRebarEditor'
 import { PmDiagram } from '@/components/columns/PmDiagram'
 import { RunColumnDesignButton } from '@/components/columns/RunColumnDesignButton'
-import { Tag } from '@/components/ui/Tag'
+import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
+import { Icon } from '@/components/ui/Icon'
+import { PrintButton } from '@/components/ui/PrintButton'
+import { PrintHeader } from '@/components/ui/PrintHeader'
 import '@/lib/engineering/codes/aci318-19'
 import '@/lib/engineering/codes/nscp2015'
 import { getCode } from '@/lib/engineering/codes'
 import { buildPmCurve } from '@/lib/engineering/concrete/column/interaction'
 import { getColumnDesign } from '@/lib/data/columns'
 import { getProject } from '@/lib/data/projects'
+import { getLatestSync } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,17 +34,15 @@ export default async function ColumnDesignPage({
   params: Promise<{ id: string; columnId: string }>
 }) {
   const { id: projectId, columnId } = await params
-  const [project, result] = await Promise.all([
+  const [project, result, latest] = await Promise.all([
     getProject(projectId),
     getColumnDesign(columnId),
+    getLatestSync(projectId),
   ])
   if (!project || !result) notFound()
 
   const { design, rebar, checks } = result
 
-  // Rebuild the interaction curve for display. Uses current rebar config;
-  // if no rebar exists yet, fall back to a default 4-bar section so the
-  // page still renders a placeholder curve.
   const code = getCode(project.code_standard)
   const d_prime = design.clear_cover_mm + (rebar?.tie_dia_mm ?? 10) + (rebar?.bar_dia_mm ?? 20) / 2
   const curve = buildPmCurve(
@@ -55,56 +64,106 @@ export default async function ColumnDesignPage({
     code,
   )
 
+  const status: 'pass' | 'fail' | 'pending' =
+    design.design_status === 'pass' || design.design_status === 'fail'
+      ? design.design_status
+      : 'pending'
+
+  const syncOk = latest && latest.status !== 'red'
+
   return (
     <DesignErrorBoundary>
-    <div className="flex flex-col gap-4">
-      <PrintHeader
-        projectName={project.name}
-        designLabel={design.label}
-        designType="Column Design"
-        codeStandard={project.code_standard}
-      />
-      <header className="flex flex-wrap items-baseline gap-3">
-        <h1 className="mono text-[20px] font-semibold">{design.label}</h1>
-        <StatusTag status={design.design_status} />
-        {checks?.slender ? <Tag variant="amber">SLENDER</Tag> : null}
-        <span className="mono text-[11.5px]"
-              style={{ color: 'var(--color-text2)' }}>
-          [{design.member_ids.join(', ')}] · {design.section_name} ·{' '}
-          {design.b_mm.toFixed(0)}×{design.h_mm.toFixed(0)} ·{' '}
-          H {design.height_mm.toFixed(0)} mm
-        </span>
-        <div className="ml-auto flex gap-2">
+      <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <PrintHeader
+          projectName={project.name}
+          designLabel={design.label}
+          designType="Column Design"
+          codeStandard={project.code_standard}
+        />
+
+        {/* Header */}
+        <div className="row" style={{ padding: '2px 2px 4px', gap: 10, flexWrap: 'wrap' }}>
+          <span className="mono" style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em' }}>
+            {design.label}
+          </span>
+          <span className="tag">COLUMN</span>
+          <span className={'tag ' + (status === 'pass' ? 'pass' : status === 'fail' ? 'fail' : 'warn')}>
+            {status.toUpperCase()}
+          </span>
+          {checks?.slender ? <span className="tag warn">SLENDER</span> : null}
+          <span style={{ color: 'var(--color-ink-3)', fontSize: 11.5 }}>
+            {design.section_name} · {design.b_mm.toFixed(0)}×{design.h_mm.toFixed(0)} · H {design.height_mm.toFixed(0)} mm
+          </span>
+          {design.member_ids.length > 0 && (
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 11 }} className="mono">
+              members {design.member_ids.join(' / ')}
+            </span>
+          )}
+          <div className="spacer" />
+          {checks && (
+            <div className={'result-bar ' + (checks.overall_status === 'pass' ? 'pass' : 'fail')} style={{ margin: 0, padding: '4px 10px' }}>
+              <span className="label">Pu</span>
+              <span>{checks.pu_kn.toFixed(1)}</span>
+              <span style={{ color: 'var(--color-ink-3)' }}>kN ·</span>
+              <span className="label">Mu</span>
+              <span>{checks.mu_major_knm.toFixed(1)}</span>
+              <span style={{ color: 'var(--color-ink-3)' }}>kN·m · ratio</span>
+              <span>{(checks.interaction_ratio * 100).toFixed(0)}%</span>
+              <span>{checks.overall_status === 'pass' ? '✓' : '✗'}</span>
+            </div>
+          )}
           <PrintButton />
           <RunColumnDesignButton projectId={projectId} columnId={columnId} />
         </div>
-      </header>
 
-      {checks ? (
-        <ResultBar checks={checks} />
-      ) : (
-        <NoDesignBar />
-      )}
+        {/* Sync banner */}
+        <div className={'sync ' + (syncOk ? '' : latest ? 'red' : 'amber')}>
+          <span className="led" />
+          <span style={{ fontWeight: 500 }}>{latest ? 'STAAD connected' : 'STAAD offline'}</span>
+          {latest && (
+            <span className="mono" style={{ color: 'var(--color-ink-3)' }}>
+              · {latest.row.file_name} · {latest.row.synced_at.slice(0, 16).replace('T', ' ')} · {latest.row.unit_system ?? 'unknown'} · {latest.row.file_hash.slice(0, 6)}
+            </span>
+          )}
+          <div className="spacer" />
+          <button className="btn sm ghost"><Icon name="sync" size={11} /> Re-sync</button>
+        </div>
 
-      <section className="grid grid-cols-[240px_minmax(0,1fr)_260px] gap-3">
-        {/* Col 1 — section + rebar */}
+        {/* STEP 1 — Member Properties */}
+        <ColumnPropertiesCard
+          initial={{
+            label: design.label,
+            b: design.b_mm,
+            h: design.h_mm,
+            height: design.height_mm,
+            cover: design.clear_cover_mm,
+            fc: design.fc_mpa,
+            fy: design.fy_mpa,
+          }}
+          staadRef={design.member_ids.length > 0 ? design.member_ids.join(' / ') : undefined}
+        />
+
+        {/* STEP 2 — Reinforcement */}
         <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>
-              Cross-section
+          <div className="card-h">
+            <span className="num-badge">2</span>
+            <span className="label">Reinforcement Design</span>
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
+              longitudinal bars · ties · spacing
             </span>
           </div>
-          <div className="cb flex flex-col items-center gap-3">
-            <ColumnCrossSection
-              b_mm={design.b_mm}
-              h_mm={design.h_mm}
-              clear_cover_mm={design.clear_cover_mm}
-              bar_dia_mm={rebar?.bar_dia_mm ?? 20}
-              bar_count={rebar?.bar_count ?? 4}
-              tie_dia_mm={rebar?.tie_dia_mm ?? 10}
-            />
-            <div className="w-full">
+          <div className="card-b" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <ColumnCrossSection
+                b_mm={design.b_mm}
+                h_mm={design.h_mm}
+                clear_cover_mm={design.clear_cover_mm}
+                bar_dia_mm={rebar?.bar_dia_mm ?? 20}
+                bar_count={rebar?.bar_count ?? 4}
+                tie_dia_mm={rebar?.tie_dia_mm ?? 10}
+              />
+            </div>
+            <div>
               <ColumnRebarEditor
                 projectId={projectId}
                 columnDesignId={columnId}
@@ -123,15 +182,16 @@ export default async function ColumnDesignPage({
           </div>
         </div>
 
-        {/* Col 2 — P-M diagram */}
+        {/* STEP 3 — P-M Interaction */}
         <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>
-              P-M interaction
+          <div className="card-h">
+            <span className="num-badge">3</span>
+            <span className="label">P-M Interaction</span>
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
+              strain-compatibility sweep · governing combo plotted
             </span>
           </div>
-          <div className="cb flex items-center justify-center">
+          <div className="card-b" style={{ display: 'flex', justifyContent: 'center' }}>
             <PmDiagram
               curve={curve.map((p) => ({
                 phi_Pn_kN: p.phi_Pn_kN,
@@ -144,154 +204,67 @@ export default async function ColumnDesignPage({
           </div>
         </div>
 
-        {/* Col 3 — checks */}
+        {/* STEP 4 — Checks */}
         <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>
-              Check results
+          <div className="card-h">
+            <span className="num-badge">4</span>
+            <span className="label">Check Results</span>
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
+              ACI 318-19 / NSCP 2015 code checks
             </span>
           </div>
-          <div className="cb flex flex-col gap-2.5">
+          <div className="card-b">
             {checks ? (
-              <>
-                <Section title="Governing forces">
-                  <Row label="Pu" value={`${checks.pu_kn.toFixed(1)} kN`} />
-                  <Row label="Mu major" value={`${checks.mu_major_knm.toFixed(1)} kN·m`} />
-                  <Row label="combo" value={checks.governing_combo?.toString() ?? '—'} />
-                </Section>
-                <Section title="Interaction">
-                  <Row
-                    label="ratio"
-                    value={`${(checks.interaction_ratio * 100).toFixed(0)}%`}
-                    ok={checks.interaction_ratio <= 1}
-                  />
-                  <Row
-                    label="ρ"
-                    value={`${checks.rho_percent.toFixed(2)}%`}
-                    ok={checks.rho_min_ok && checks.rho_max_ok}
-                  />
-                </Section>
-                <Section title="Shear">
-                  <Row
-                    label="φVn ≥ Vu"
-                    value={`${checks.phi_vn_kn.toFixed(1)} ≥ ${checks.vu_kn.toFixed(1)} kN`}
-                    ok={checks.shear_status === 'pass'}
-                  />
-                </Section>
-                <Section title="Ties & slenderness">
-                  <Row label="klu/r" value={checks.klu_r.toFixed(1)} />
-                  <Row
-                    label="slender"
-                    value={checks.slender ? 'yes' : 'no'}
-                    ok={!checks.slender}
-                  />
-                </Section>
-              </>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+                <CheckSection title="Governing forces">
+                  <CheckRow k="Pu" v={`${checks.pu_kn.toFixed(1)} kN`} />
+                  <CheckRow k="Mu major" v={`${checks.mu_major_knm.toFixed(1)} kN·m`} />
+                  <CheckRow k="combo" v={checks.governing_combo?.toString() ?? '—'} />
+                </CheckSection>
+                <CheckSection title="Interaction">
+                  <CheckRow k="ratio" v={`${(checks.interaction_ratio * 100).toFixed(0)}%`} ok={checks.interaction_ratio <= 1} />
+                  <CheckRow k="ρ" v={`${checks.rho_percent.toFixed(2)}%`} ok={checks.rho_min_ok && checks.rho_max_ok} />
+                </CheckSection>
+                <CheckSection title="Shear">
+                  <CheckRow k="φVn ≥ Vu" v={`${checks.phi_vn_kn.toFixed(1)} ≥ ${checks.vu_kn.toFixed(1)} kN`} ok={checks.shear_status === 'pass'} />
+                </CheckSection>
+                <CheckSection title="Ties &amp; slenderness">
+                  <CheckRow k="klu/r" v={checks.klu_r.toFixed(1)} />
+                  <CheckRow k="slender" v={checks.slender ? 'yes' : 'no'} ok={!checks.slender} />
+                </CheckSection>
+              </div>
             ) : (
-              <p className="text-[11.5px]"
-                 style={{ color: 'var(--color-text2)' }}>
-                Run design to populate checks.
-              </p>
+              <p style={{ fontSize: 11.5, color: 'var(--color-ink-3)' }}>Run design to populate checks.</p>
             )}
           </div>
         </div>
-      </section>
-    </div>
+      </div>
     </DesignErrorBoundary>
   )
 }
 
-function StatusTag({ status }: { status: string }) {
-  switch (status) {
-    case 'pass':  return <Tag variant="green">PASS</Tag>
-    case 'fail':  return <Tag variant="red">FAIL</Tag>
-    case 'unverified': return <Tag variant="amber">UNVERIFIED</Tag>
-    default:      return <Tag variant="amber">PENDING</Tag>
-  }
-}
-
-function ResultBar({
-  checks,
-}: {
-  checks: {
-    pu_kn: number
-    mu_major_knm: number
-    interaction_ratio: number
-    overall_status: string
-  }
-}) {
-  const pass = checks.overall_status === 'pass'
+function CheckSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div
-      className="rounded px-3 py-2 flex items-baseline gap-3 text-[11.5px] mono"
-      style={{
-        background: pass ? 'var(--color-green-l)' : 'var(--color-red-l)',
-        color: pass ? 'var(--color-green)' : 'var(--color-red)',
-      }}
-    >
-      <span className="font-semibold">{pass ? 'PASS' : 'FAIL'}</span>
-      <span>Pu {checks.pu_kn.toFixed(1)} kN · Mu {checks.mu_major_knm.toFixed(1)} kN·m</span>
-      <span>· interaction {(checks.interaction_ratio * 100).toFixed(0)}%</span>
+    <div>
+      <div className="sub-label" style={{ marginBottom: 4 }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</div>
     </div>
   )
 }
 
-function NoDesignBar() {
+function CheckRow({ k, v, ok }: { k: string; v: string; ok?: boolean }) {
   return (
-    <div
-      className="rounded px-3 py-2 text-[11.5px]"
-      style={{ background: 'var(--color-amber-l)', color: 'var(--color-amber)' }}
-    >
-      No design results yet. Click <span className="font-semibold">Run design</span> to build the P-M curve and evaluate Pu/Mu against it.
-    </div>
-  )
-}
-
-function Row({
-  label, value, ok,
-}: {
-  label: string
-  value: string
-  ok?: boolean
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
-      <span className="uppercase tracking-wider"
-            style={{ color: 'var(--color-text2)' }}>
-        {label}
-      </span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, padding: '2px 0' }}>
+      <span style={{ color: 'var(--color-ink-3)' }}>{k}</span>
       <span
         className="mono"
         style={{
-          color:
-            ok === undefined
-              ? 'var(--color-text)'
-              : ok
-                ? 'var(--color-green)'
-                : 'var(--color-red)',
+          color: ok === undefined ? 'var(--color-ink)' : ok ? 'var(--color-pass)' : 'var(--color-fail)',
           fontWeight: ok === false ? 600 : 400,
         }}
       >
-        {value} {ok === false ? '✗' : ok ? '✓' : ''}
+        {v} {ok === false ? '✗' : ok ? '✓' : ''}
       </span>
-    </div>
-  )
-}
-
-function Section({
-  title, children,
-}: {
-  title: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <div className="text-[9.5px] uppercase tracking-wider"
-           style={{ color: 'var(--color-text2)' }}>
-        {title}
-      </div>
-      {children}
     </div>
   )
 }
