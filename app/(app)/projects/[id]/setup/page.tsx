@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 
-import { SetupTabs } from '@/components/setup/SetupTabs'
+import { ProjectSetup } from '@/components/setup/ProjectSetup'
 import {
   listCombinations,
   listLoadCases,
@@ -31,9 +31,25 @@ export default async function SetupPage({
   ])
 
   return (
-    <SetupTabs
+    <ProjectSetup
       projectId={id}
-      codeStandard={project.code_standard}
+      project={{
+        name: project.name,
+        description: project.description,
+        client: project.client,
+        location: project.location,
+        code_standard: project.code_standard,
+        default_fc_mpa: project.default_fc_mpa,
+        default_fy_mpa: project.default_fy_mpa,
+        default_fys_mpa: project.default_fys_mpa,
+        default_clear_cover_mm: project.default_clear_cover_mm,
+        default_density_kn_m3: project.default_density_kn_m3,
+        seismic_zone: project.seismic_zone,
+        exposure_class: project.exposure_class,
+        aggregate_type: project.aggregate_type,
+        lightweight_lambda: project.lightweight_lambda,
+        engineer_name: project.engineer_name,
+      }}
       latestSync={
         latest
           ? {

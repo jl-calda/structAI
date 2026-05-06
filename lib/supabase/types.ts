@@ -104,6 +104,16 @@ export type Database = {
           code_standard: CodeStandard
           created_at: string
           updated_at: string
+          default_fc_mpa: number
+          default_fy_mpa: number
+          default_fys_mpa: number
+          default_clear_cover_mm: number
+          default_density_kn_m3: number
+          seismic_zone: string
+          exposure_class: string
+          aggregate_type: string
+          lightweight_lambda: number
+          engineer_name: string
         }
         Insert: {
           id?: string
@@ -114,6 +124,16 @@ export type Database = {
           code_standard?: CodeStandard
           created_at?: string
           updated_at?: string
+          default_fc_mpa?: number
+          default_fy_mpa?: number
+          default_fys_mpa?: number
+          default_clear_cover_mm?: number
+          default_density_kn_m3?: number
+          seismic_zone?: string
+          exposure_class?: string
+          aggregate_type?: string
+          lightweight_lambda?: number
+          engineer_name?: string
         }
         Update: {
           id?: string
@@ -124,6 +144,16 @@ export type Database = {
           code_standard?: CodeStandard
           created_at?: string
           updated_at?: string
+          default_fc_mpa?: number
+          default_fy_mpa?: number
+          default_fys_mpa?: number
+          default_clear_cover_mm?: number
+          default_density_kn_m3?: number
+          seismic_zone?: string
+          exposure_class?: string
+          aggregate_type?: string
+          lightweight_lambda?: number
+          engineer_name?: string
         }
         Relationships: []
       }
