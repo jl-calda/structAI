@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
 
 import type { BentMode } from './RebarRow'
 
@@ -66,6 +66,10 @@ export type RebarMTOProps = {
   bendL: number
   fc?: number
   fy?: number
+  /** kg/m for a given dia — when supplied, overrides the legacy table. */
+  barMass?: (dia_mm: number) => number
+  /** Display label for a bar — `Ø20` (metric) or `#6` (ACI). */
+  barLabel?: (dia_mm: number) => string
 }
 
 export function RebarMTO(props: RebarMTOProps) {
@@ -77,7 +81,22 @@ export function RebarMTO(props: RebarMTOProps) {
     stirDia, stirSpacingEnd, stirSpacingMid,
     bendL,
     fc = 28, fy = 415,
+    barMass, barLabel,
   } = props
+
+  // Resolve from code provider when supplied, else fall back to the
+  // legacy metric BAR_MASS table (PNS 49). Wrapped in useCallback so
+  // they're stable across renders and don't bust the buildMarks memo.
+  const massOf = useCallback(
+    (dia: number) => barMass
+      ? barMass(dia)
+      : (BAR_MASS[Math.round(dia)] ?? 7850 * Math.PI * Math.pow(dia / 2000, 2)),
+    [barMass],
+  )
+  const labelOf = useCallback(
+    (dia: number) => barLabel ? barLabel(dia) : `Ø${Math.round(dia)}`,
+    [barLabel],
+  )
 
   const [stockLen, setStockLen] = useState(12000)
   const [selectedMark, setSelectedMark] = useState<string | null>(null)
@@ -90,13 +109,14 @@ export function RebarMTO(props: RebarMTOProps) {
     stirDia, stirSpacingEnd, stirSpacingMid,
     bendL, fc, fy,
     stockLen,
+    massOf,
   }), [
     span, h, b, cover, perimDia,
     t1Count, t1Dia, t1Bent, t2Count, t2Dia, t2Bent,
     c1Count, c1Dia, c2Count, c2Dia,
     torsCount, torsDia,
     stirDia, stirSpacingEnd, stirSpacingMid,
-    bendL, fc, fy, stockLen,
+    bendL, fc, fy, stockLen, massOf,
   ])
 
   const { marks, byDia, totalMass, totalNetMass, totalWasteMass, totalStockBars, totalWasteMm } = result
@@ -157,7 +177,7 @@ export function RebarMTO(props: RebarMTOProps) {
           <tbody>
             {marks.map(m => {
               const totLen = m.cutLen * m.count
-              const mass = (totLen / 1000) * (BAR_MASS[m.db] || 0)
+              const mass = (totLen / 1000) * massOf(m.db)
               const isSel = selectedMark === m.mark
               return (
                 <Fragment key={m.mark}>
@@ -168,7 +188,7 @@ export function RebarMTO(props: RebarMTOProps) {
                     <td><span className="mono" style={{ fontWeight: 700, color: 'var(--color-ink)' }}>{m.mark}</span></td>
                     <td style={{ color: 'var(--color-ink-2)' }}>{m.desc}</td>
                     <td><BarShapeIcon shape={m.shape} /></td>
-                    <td className="num" style={{ textAlign: 'right' }}><span className="mono">Ø{m.db}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono">{labelOf(m.db)}</span></td>
                     <td className="num" style={{ textAlign: 'right' }}><span className="mono">{m.count}</span></td>
                     <td className="num" style={{ textAlign: 'right' }}><span className="mono">{m.cutLen.toLocaleString()}</span></td>
                     <td className="num" style={{ textAlign: 'right' }}>
@@ -177,13 +197,13 @@ export function RebarMTO(props: RebarMTOProps) {
                       </span>
                     </td>
                     <td className="num" style={{ textAlign: 'right' }}><span className="mono">{totLen.toLocaleString()}</span></td>
-                    <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ color: 'var(--color-ink-3)' }}>{(BAR_MASS[m.db] || 0).toFixed(3)}</span></td>
+                    <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ color: 'var(--color-ink-3)' }}>{massOf(m.db).toFixed(3)}</span></td>
                     <td className="num" style={{ textAlign: 'right' }}><span className="mono" style={{ fontWeight: 600 }}>{mass.toFixed(2)}</span></td>
                   </tr>
                   {isSel && (
                     <tr>
                       <td colSpan={10} style={{ padding: 0, background: '#FEF9EE', borderTop: '1px solid #E8C879' }}>
-                        <BarDetailView mark={m} />
+                        <BarDetailView mark={m} massOf={massOf} labelOf={labelOf} />
                       </td>
                     </tr>
                   )}
@@ -212,7 +232,7 @@ export function RebarMTO(props: RebarMTOProps) {
             <tbody>
               {Object.values(byDia).sort((a, b) => a.db - b.db).map(g => (
                 <tr key={g.db}>
-                  <td><span className="mono" style={{ fontWeight: 600 }}>Ø{g.db}</span></td>
+                  <td><span className="mono" style={{ fontWeight: 600 }}>{labelOf(g.db)}</span></td>
                   <td className="num" style={{ textAlign: 'right' }}><span className="mono">{g.pieces}</span></td>
                   <td className="num" style={{ textAlign: 'right' }}><span className="mono">{Math.round(g.totalCut).toLocaleString()}</span></td>
                   <td className="num" style={{ textAlign: 'right' }}><span className="mono">{g.mass.toFixed(2)}</span></td>
@@ -313,7 +333,15 @@ type DimRow = {
   vert?: boolean; vy?: number; side?: boolean
 }
 
-function BarDetailView({ mark }: { mark: Mark }) {
+function BarDetailView({
+  mark,
+  massOf,
+  labelOf,
+}: {
+  mark: Mark
+  massOf: (dia: number) => number
+  labelOf: (dia: number) => string
+}) {
   const { geom, db, ld: ldVal, ldh: ldhVal, lap: lapVal } = mark
   const W = 760
   const H = 200
@@ -386,7 +414,7 @@ function BarDetailView({ mark }: { mark: Mark }) {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
         <span className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-ink)' }}>{mark.mark}</span>
         <span style={{ fontSize: 11.5, color: 'var(--color-ink-2)' }}>{mark.desc}</span>
-        <span className="tag">Ø{db}</span>
+        <span className="tag">{labelOf(db)}</span>
         <span className="tag">{mark.count} pcs</span>
         <span className="mono" style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>cut len = {mark.cutLen.toLocaleString()} mm</span>
         {mark.splices > 0 && (
@@ -421,7 +449,7 @@ function BarDetailView({ mark }: { mark: Mark }) {
           </g>
         ))}
         <text x={W / 2} y={H - 8} textAnchor="middle" fontFamily="JetBrains Mono" fontSize={10} fill="#4A4038" fontWeight={600}>
-          Σ cut length = {mark.cutLen.toLocaleString()} mm  ·  mass per pc = {(mark.cutLen / 1000 * (BAR_MASS[db] || 0)).toFixed(2)} kg
+          Σ cut length = {mark.cutLen.toLocaleString()} mm  ·  mass per pc = {(mark.cutLen / 1000 * massOf(db)).toFixed(2)} kg
         </text>
       </svg>
       <table className="t" style={{ fontSize: 10.5, background: '#fff' }}>
@@ -454,9 +482,13 @@ function BarDetailView({ mark }: { mark: Mark }) {
 // Pure helpers — outside component so they don't recompute on every render
 // ---------------------------------------------------------------------------
 
-type BuildArgs = Omit<RebarMTOProps, 'beamId'> & { stockLen: number }
+type BuildArgs = Omit<RebarMTOProps, 'beamId'> & {
+  stockLen: number
+  massOf: (dia: number) => number
+}
 
 function buildMarks(args: BuildArgs) {
+  const massOf = args.massOf
   const {
     span, h, b, cover, perimDia,
     t1Count, t1Dia, t1Bent, t2Count, t2Dia, t2Bent,
@@ -596,7 +628,7 @@ function buildMarks(args: BuildArgs) {
     if (!byDia[m.db]) byDia[m.db] = { db: m.db, totalCut: 0, pieces: 0, mass: 0, stockBars: 0, waste: 0, wastePct: 0, stockMass: 0 }
     byDia[m.db].totalCut += totalCut
     byDia[m.db].pieces += m.count
-    byDia[m.db].mass += (totalCut / 1000) * (BAR_MASS[m.db] || 0)
+    byDia[m.db].mass += (totalCut / 1000) * massOf(m.db)
   })
 
   // Bin packing per dia (FFD)
@@ -630,7 +662,7 @@ function buildMarks(args: BuildArgs) {
     g.stockBars = bins.length
     g.waste = bins.reduce((s, r) => s + r, 0)
     g.wastePct = g.stockBars > 0 ? (g.waste / (g.stockBars * stockLen)) * 100 : 0
-    g.stockMass = (g.stockBars * stockLen / 1000) * (BAR_MASS[g.db] || 0)
+    g.stockMass = (g.stockBars * stockLen / 1000) * massOf(g.db)
   })
 
   const totalMass = Object.values(byDia).reduce((s, g) => s + g.stockMass, 0)

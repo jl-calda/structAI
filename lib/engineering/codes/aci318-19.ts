@@ -305,6 +305,43 @@ export const ACI_318_19: CodeProvider = {
       return Math.min(...caps)
     },
   },
+
+  // ─── Rebar size catalog (ACI imperial — ASTM A615) ─────────────────────
+  // #N has nominal dia ≈ N/8 inch. We store mm to one decimal and use
+  // ±0.5 mm fuzzy matching in bar_label / bar_mass_kg_per_m so callers
+  // can supply rounded ints (10, 13, 16, 19...) and still resolve.
+  bar_dias_long: [9.5, 12.7, 15.9, 19.1, 22.2, 25.4, 28.7, 32.3, 35.8],
+  bar_dias_stirrup: [9.5, 12.7, 15.9],
+  bar_mass_kg_per_m: (dia_mm) => {
+    const table: { dia: number; mass: number }[] = [
+      { dia: 9.5, mass: 0.560 },
+      { dia: 12.7, mass: 0.994 },
+      { dia: 15.9, mass: 1.552 },
+      { dia: 19.1, mass: 2.235 },
+      { dia: 22.2, mass: 3.042 },
+      { dia: 25.4, mass: 3.973 },
+      { dia: 28.7, mass: 5.060 },
+      { dia: 32.3, mass: 6.404 },
+      { dia: 35.8, mass: 7.907 },
+    ]
+    const hit = table.find((t) => Math.abs(t.dia - dia_mm) < 0.6)
+    if (hit) return hit.mass
+    // Fallback: density × area in m² → 7850 kg/m³ × π·(d/2000)²
+    return 7850 * Math.PI * Math.pow(dia_mm / 2000, 2)
+  },
+  bar_label: (dia_mm) => {
+    const map: Record<number, string> = {
+      9.5: '#3', 12.7: '#4', 15.9: '#5', 19.1: '#6',
+      22.2: '#7', 25.4: '#8', 28.7: '#9', 32.3: '#10', 35.8: '#11',
+    }
+    for (const k of Object.keys(map)) {
+      const kn = Number(k)
+      if (Math.abs(kn - dia_mm) < 0.6) return map[kn]
+    }
+    return `Ø${dia_mm.toFixed(0)}`
+  },
+  default_dia_long: 19.1,    // #6 — typical beam/column long. bar
+  default_dia_stirrup: 9.5,  // #3 — typical stirrup
 }
 
 registerCode(ACI_318_19)

@@ -71,6 +71,30 @@ export const NSCP_2015: CodeProvider = {
       return Math.min(b_mm / 4, 6 * bar_dia_mm, 150)
     },
   },
+
+  // ─── Rebar size catalog (PNS 49 / DPWH metric) ─────────────────────────
+  // Standard deformed bars used in Philippine practice. Mass per ASTM
+  // A615M / PNS 49 (≈ 7.85 g/cm³ × bar area).
+  bar_dias_long: [10, 12, 16, 20, 25, 28, 32, 36, 40],
+  bar_dias_stirrup: [10, 12],
+  bar_mass_kg_per_m: (dia_mm) => {
+    const table: Record<number, number> = {
+      10: 0.617,
+      12: 0.888,
+      16: 1.578,
+      20: 2.466,
+      25: 3.853,
+      28: 4.834,
+      32: 6.313,
+      36: 7.990,
+      40: 9.864,
+    }
+    if (table[dia_mm] != null) return table[dia_mm]
+    return 7850 * Math.PI * Math.pow(dia_mm / 2000, 2)
+  },
+  bar_label: (dia_mm) => `Ø${Math.round(dia_mm)}`,
+  default_dia_long: 20,    // typical perimeter / tension bar
+  default_dia_stirrup: 10, // typical stirrup
 }
 
 registerCode(NSCP_2015)
