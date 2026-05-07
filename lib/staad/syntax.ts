@@ -27,6 +27,21 @@ export type LoadCaseInput = {
   title: string
   memberLoads?: MemberLoad[]
   jointLoads?: JointLoad[]
+  floorLoads?: FloorLoad[]
+  selfWeight?: { factor: number }
+}
+
+export type FloorLoad = {
+  /** 'yrange' = by floor Y level, 'members' = by member list */
+  method: 'yrange' | 'members'
+  /** Y coordinate of the floor (m) — used when method='yrange' */
+  yLevel?: number
+  /** STAAD member IDs — used when method='members' */
+  memberIds?: number[]
+  /** Pressure in kN/m² (positive value — the generator adds the minus sign) */
+  pressure_kpa: number
+  /** Load distribution: two-way (default) or one-way in X/Z */
+  distribution: 'twoway' | 'oneway_x' | 'oneway_z'
 }
 
 export type ComboInput = {
@@ -63,6 +78,12 @@ export function generateLoadCaseBlock(lc: LoadCaseInput): string {
 
   lines.push(`LOAD ${lc.caseNumber} LOADTYPE ${lc.loadType} TITLE ${lc.title}`)
 
+  // SELFWEIGHT — factor-based, applies to all members
+  if (lc.selfWeight) {
+    lines.push(`SELFWEIGHT Y -${lc.selfWeight.factor}`)
+  }
+
+  // MEMBER LOAD — UDL, point, trapezoidal on specific members
   if (lc.memberLoads && lc.memberLoads.length > 0) {
     lines.push('MEMBER LOAD')
     for (const ml of lc.memberLoads) {
@@ -88,6 +109,22 @@ export function generateLoadCaseBlock(lc: LoadCaseInput): string {
     }
   }
 
+  // FLOOR LOAD — STAAD distributes to beams automatically
+  if (lc.floorLoads && lc.floorLoads.length > 0) {
+    lines.push('FLOOR LOAD')
+    for (const fl of lc.floorLoads) {
+      const p = -(Math.abs(fl.pressure_kpa))
+      const oneWay = fl.distribution === 'oneway_x' ? ' ONEWAY X' : fl.distribution === 'oneway_z' ? ' ONEWAY Z' : ''
+      if (fl.method === 'yrange' && fl.yLevel != null) {
+        lines.push(`YRANGE ${fl.yLevel.toFixed(3)} ${fl.yLevel.toFixed(3)} FLOAD ${p} GY${oneWay}`)
+      } else if (fl.method === 'members' && fl.memberIds && fl.memberIds.length > 0) {
+        const memberStr = fl.memberIds.join(' ')
+        lines.push(`${memberStr} FLOAD ${p} GY${oneWay}`)
+      }
+    }
+  }
+
+  // JOINT LOAD — concentrated forces at nodes
   if (lc.jointLoads && lc.jointLoads.length > 0) {
     lines.push('JOINT LOAD')
     for (const jl of lc.jointLoads) {
