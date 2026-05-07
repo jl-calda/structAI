@@ -144,3 +144,24 @@ class ResyncBody(BaseModel):
 class PushCombinationsBody(BaseModel):
     project_id: str
     combinations: List[SyncCombination]
+
+
+class MemberLoadEntry(BaseModel):
+    member_id: int
+    load_type: Literal["UNI", "CON", "LIN"]
+    direction: Literal["GY", "GX", "GZ"] = "GY"
+    w: Optional[float] = None
+    w1: Optional[float] = None
+    w2: Optional[float] = None
+    p: Optional[float] = None
+    d: Optional[float] = None
+    d1: Optional[float] = None
+    d2: Optional[float] = None
+
+
+class PushLoadsBody(BaseModel):
+    project_id: str
+    case_number: int
+    load_type: str
+    title: str
+    member_loads: List[MemberLoadEntry]

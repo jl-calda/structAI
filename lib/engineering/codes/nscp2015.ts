@@ -17,6 +17,7 @@ import {
   type CodeProvider,
 } from '@/lib/engineering/codes'
 import { ACI_318_19 } from '@/lib/engineering/codes/aci318-19'
+import { NSCP_LOAD_ASSEMBLIES } from './nscp2015-loads'
 
 const PHI_SHEAR = 0.75
 const PHI_FLEXURE_NSCP = 0.9
@@ -93,8 +94,10 @@ export const NSCP_2015: CodeProvider = {
     return 7850 * Math.PI * Math.pow(dia_mm / 2000, 2)
   },
   bar_label: (dia_mm) => `Ø${Math.round(dia_mm)}`,
-  default_dia_long: 20,    // typical perimeter / tension bar
-  default_dia_stirrup: 10, // typical stirrup
+  default_dia_long: 20,
+  default_dia_stirrup: 10,
+
+  load_assemblies: NSCP_LOAD_ASSEMBLIES,
 }
 
 registerCode(NSCP_2015)

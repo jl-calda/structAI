@@ -28,7 +28,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 
 from config import Config, load_config
-from payload import PushCombinationsBody, ResyncBody
+from payload import PushCombinationsBody, PushLoadsBody, ResyncBody
 from staad_reader import (
     StaadError,
     file_sha256,
@@ -214,3 +214,24 @@ def push_combinations(body: PushCombinationsBody):
         len(body.combinations), body.project_id,
     )
     return {"ok": True, "received": len(body.combinations)}
+
+
+@app.post("/push-loads")
+def push_loads(body: PushLoadsBody):
+    """Receive member loads from the app's Load Assembly Calculator.
+
+    Phase 1 scope: log them. Writing them back into STAAD via COM
+    requires OpenSTAAD Load.AddMemberLoad which is version-sensitive;
+    that's a later commit.
+    """
+    s = _state()
+    if body.project_id != s.cfg.project_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"project_id mismatch: bridge is bound to {s.cfg.project_id}",
+        )
+    logger.info(
+        "push-loads: case %d (%s), %d member loads for project %s",
+        body.case_number, body.title, len(body.member_loads), body.project_id,
+    )
+    return {"ok": True, "case_number": body.case_number, "received": len(body.member_loads)}

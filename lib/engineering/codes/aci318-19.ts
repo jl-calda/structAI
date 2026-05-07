@@ -17,6 +17,7 @@ import {
   type MomentCapacityResult,
   type SectionGeom,
 } from '@/lib/engineering/codes'
+import { ACI_LOAD_ASSEMBLIES } from './aci318-loads'
 
 const PHI_FLEXURE = 0.9
 const PHI_SHEAR = 0.75
@@ -340,8 +341,10 @@ export const ACI_318_19: CodeProvider = {
     }
     return `Ø${dia_mm.toFixed(0)}`
   },
-  default_dia_long: 19.1,    // #6 — typical beam/column long. bar
-  default_dia_stirrup: 9.5,  // #3 — typical stirrup
+  default_dia_long: 19.1,
+  default_dia_stirrup: 9.5,
+
+  load_assemblies: ACI_LOAD_ASSEMBLIES,
 }
 
 registerCode(ACI_318_19)
