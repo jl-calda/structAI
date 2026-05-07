@@ -9,11 +9,15 @@ import {
   PropSelectRow,
   PropStaticRow,
 } from '@/components/ui/PropRow'
+import { StaadCodeSection } from './StaadCodeSection'
 import type { CodeStandard } from '@/lib/supabase/types'
+
+type MemberLite = { member_id: number; section_name: string; length_mm: number; member_type: string }
 
 export function BasicLoadsPage({
   projectId,
   project,
+  members = [],
 }: {
   projectId: string
   project: {
@@ -22,6 +26,7 @@ export function BasicLoadsPage({
     seismic_zone: string
     lightweight_lambda: number
   }
+  members?: MemberLite[]
 }) {
   void projectId
   const code = project.code_standard
@@ -76,6 +81,7 @@ export function BasicLoadsPage({
             <PropStaticRow label="400×400 col" value={(0.40 * 0.40 * density).toFixed(2)} unit="kN/m" />
           </PropGroup>
         </div>
+        <StaadCodeSection caseNumber={3} loadType="dead" title="DL" members={members} />
       </div>
 
       {/* Card 2 — SDL */}
@@ -94,6 +100,7 @@ export function BasicLoadsPage({
             <PropStaticRow label="Code ref" value={`${codeRef} §4.2`} />
           </PropGroup>
         </div>
+        <StaadCodeSection caseNumber={3} loadType="dead" title="SDL" members={members} />
       </div>
 
       {/* Card 3 — Live Load */}
@@ -111,6 +118,7 @@ export function BasicLoadsPage({
             <PropStaticRow label="Pattern" value="0.5" desc="checkerboard pattern loading" />
           </PropGroup>
         </div>
+        <StaadCodeSection caseNumber={4} loadType="live" title="LL" members={members} />
       </div>
 
       {/* Card 4 — Roof Live Load */}
@@ -127,6 +135,7 @@ export function BasicLoadsPage({
             <PropStaticRow label="Companion" value="0.5" desc="1.2D + 1.6L + 0.5Lr" />
           </PropGroup>
         </div>
+        <StaadCodeSection caseNumber={5} loadType="roof_live" title="LR" members={members} />
       </div>
 
       {/* Card 5 — Seismic */}
@@ -149,6 +158,8 @@ export function BasicLoadsPage({
             <PropStaticRow label="Factor" value="1.0" desc="E enters combos at 1.0E" />
           </PropGroup>
         </div>
+        <StaadCodeSection caseNumber={1} loadType="seismic_x" title="Eqx" members={[]} />
+        <StaadCodeSection caseNumber={2} loadType="seismic_z" title="Eqz" members={[]} />
       </div>
 
       {/* Card 6 — Wind */}
@@ -168,6 +179,10 @@ export function BasicLoadsPage({
             <PropStaticRow label="Factor" value="1.0" desc="W enters combos at 1.0W" />
           </PropGroup>
         </div>
+        <StaadCodeSection caseNumber={6} loadType="wind_x" title="Wx_1" members={members} />
+        <StaadCodeSection caseNumber={7} loadType="wind_x" title="Wx_2" members={members} />
+        <StaadCodeSection caseNumber={8} loadType="wind_z" title="Wz_1" members={members} />
+        <StaadCodeSection caseNumber={9} loadType="wind_z" title="Wz_2" members={members} />
       </div>
     </div>
   )
