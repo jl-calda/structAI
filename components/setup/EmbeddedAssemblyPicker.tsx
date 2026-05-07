@@ -8,7 +8,7 @@ import { getCode } from '@/lib/engineering/codes'
 import type { LoadAssembly, LoadAssemblyCategory } from '@/lib/engineering/codes'
 
 import { Icon } from '@/components/ui/Icon'
-import { generateLoadCaseBlock, staadLoadType } from '@/lib/staad/syntax'
+import { generateLoadCaseBlock, staadLoadType, type FloorLoad } from '@/lib/staad/syntax'
 import type { CodeStandard } from '@/lib/supabase/types'
 
 type MemberLite = { member_id: number; section_name: string; length_mm: number; member_type: string }
@@ -18,8 +18,16 @@ type AssemblyItem = { assembly: LoadAssembly; height: number; tribWidth: number 
 type LoadGroup = {
   id: number
   label: string
+  /** 'member' = traditional MEMBER LOAD UDL; 'floor' = STAAD FLOOR LOAD command */
+  mode: 'member' | 'floor'
   items: AssemblyItem[]
   memberIds: number[]
+  /** For floor mode: load distribution */
+  distribution: 'twoway' | 'oneway_x' | 'oneway_z'
+  /** For floor mode: how to specify the floor */
+  floorMethod: 'yrange' | 'members'
+  /** For floor mode with yrange: Y level in metres */
+  yLevel: number
 }
 
 let groupIdCounter = 1
@@ -67,8 +75,8 @@ export function EmbeddedAssemblyPicker({
 
   const groupTotal = (g: LoadGroup) => g.items.reduce((s, it) => s + computeItemLoad(it), 0)
 
-  // Build all MEMBER LOAD lines across all groups
-  const allMemberLoads = groups.flatMap(g => {
+  // Build MEMBER LOAD lines (for 'member' mode groups)
+  const allMemberLoads = groups.filter(g => g.mode === 'member').flatMap(g => {
     const udl = groupTotal(g)
     if (udl <= 0 || g.memberIds.length === 0) return []
     return g.memberIds.map(mid => ({
@@ -79,16 +87,33 @@ export function EmbeddedAssemblyPicker({
     }))
   })
 
+  // Build FLOOR LOAD entries (for 'floor' mode groups)
+  const allFloorLoads: FloorLoad[] = groups.filter(g => g.mode === 'floor').flatMap(g => {
+    const pressure = groupTotal(g)
+    if (pressure <= 0) return []
+    return [{
+      method: g.floorMethod,
+      yLevel: g.floorMethod === 'yrange' ? g.yLevel : undefined,
+      memberIds: g.floorMethod === 'members' ? g.memberIds : undefined,
+      pressure_kpa: pressure,
+      distribution: g.distribution,
+    }]
+  })
+
   const staadCode = generateLoadCaseBlock({
     caseNumber,
     loadType: staadLoadType(loadType),
     title: caseTitle,
     memberLoads: allMemberLoads.length > 0 ? allMemberLoads : undefined,
+    floorLoads: allFloorLoads.length > 0 ? allFloorLoads : undefined,
   })
 
-  const addGroup = (label: string) => {
+  const addGroup = (label: string, mode: 'member' | 'floor' = 'member') => {
     const id = groupIdCounter++
-    setGroups(prev => [...prev, { id, label, items: [], memberIds: [] }])
+    setGroups(prev => [...prev, {
+      id, label, mode, items: [], memberIds: [],
+      distribution: 'twoway', floorMethod: 'yrange', yLevel: 3.0,
+    }])
     setActiveGroupId(id)
   }
 
@@ -179,14 +204,14 @@ export function EmbeddedAssemblyPicker({
               </button>
             ))}
             <div className="divider" style={{ height: 20 }} />
-            <button type="button" className="btn sm" onClick={() => addGroup('Wall load')}>
+            <button type="button" className="btn sm" onClick={() => addGroup('Wall load', 'member')}>
               <Icon name="plus" size={10} /> Wall load
             </button>
-            <button type="button" className="btn sm" onClick={() => addGroup('Floor load')}>
+            <button type="button" className="btn sm" onClick={() => addGroup('Floor load', 'floor')}>
               <Icon name="plus" size={10} /> Floor load
             </button>
-            <button type="button" className="btn sm" onClick={() => addGroup('Custom')}>
-              <Icon name="plus" size={10} /> Custom
+            <button type="button" className="btn sm" onClick={() => addGroup('Line load', 'member')}>
+              <Icon name="plus" size={10} /> Line load
             </button>
           </div>
 
@@ -269,10 +294,43 @@ export function EmbeddedAssemblyPicker({
                 </table>
               )}
 
-              {/* Member selector for this group */}
-              {activeGroup.items.length > 0 && members.length > 0 && (
+              {/* Floor load settings (distribution + method) */}
+              {activeGroup.mode === 'floor' && activeGroup.items.length > 0 && (
+                <div style={{ padding: '6px 8px', borderTop: '1px solid var(--color-line-2)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
+                    Distribution:
+                    <select className="select" value={activeGroup.distribution} onChange={e => setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, distribution: e.target.value as 'twoway' | 'oneway_x' | 'oneway_z' } : g))} style={{ height: 22, width: 110 }}>
+                      <option value="twoway">Two-way</option>
+                      <option value="oneway_x">One-way X</option>
+                      <option value="oneway_z">One-way Z</option>
+                    </select>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
+                    Apply by:
+                    <select className="select" value={activeGroup.floorMethod} onChange={e => setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, floorMethod: e.target.value as 'yrange' | 'members' } : g))} style={{ height: 22, width: 100 }}>
+                      <option value="yrange">Y level</option>
+                      <option value="members">Members</option>
+                    </select>
+                  </label>
+                  {activeGroup.floorMethod === 'yrange' && (
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
+                      Y =
+                      <input className="input" type="number" value={activeGroup.yLevel} onChange={e => setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, yLevel: Number(e.target.value) } : g))} style={{ width: 60, height: 20 }} step="0.1" />
+                      m
+                    </label>
+                  )}
+                  <div style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>
+                    STAAD FLOOR LOAD — distributes {activeGroup.distribution === 'twoway' ? 'via yield-line' : `one-way in ${activeGroup.distribution.slice(-1).toUpperCase()}`} to supporting beams
+                  </div>
+                </div>
+              )}
+
+              {/* Member selector — for MEMBER LOAD mode or FLOOR LOAD with members method */}
+              {activeGroup.items.length > 0 && members.length > 0 && (activeGroup.mode === 'member' || activeGroup.floorMethod === 'members') && (
                 <div style={{ padding: '6px 8px', borderTop: '1px solid var(--color-line-2)' }}>
-                  <span className="sub-label">Members for this group ({activeGroup.memberIds.length} selected)</span>
+                  <span className="sub-label">
+                    {activeGroup.mode === 'floor' ? 'Floor load members' : 'Members for this group'} ({activeGroup.memberIds.length} selected)
+                  </span>
                   <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 4 }}>
                     {members.map(m => {
                       const sel = activeGroup.memberIds.includes(m.member_id)
