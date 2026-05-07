@@ -11,6 +11,8 @@ import {
 } from '@/components/ui/PropRow'
 import { EmbeddedAssemblyPicker } from './EmbeddedAssemblyPicker'
 import { StaadCodeSection } from './StaadCodeSection'
+import { Icon } from '@/components/ui/Icon'
+import { generateFullSeismicBlock, type SeismicDefinition } from '@/lib/staad/syntax'
 import type { CodeStandard } from '@/lib/supabase/types'
 
 type MemberLite = { member_id: number; section_name: string; length_mm: number; member_type: string }
@@ -40,6 +42,10 @@ export function BasicLoadsPage({
   const [importance, setImportance] = useState(1.0)
   const [rFactor, setRFactor] = useState(8.5)
   const [frameType, setFrameType] = useState('SMRF')
+  const [includeDL, setIncludeDL] = useState(true)
+  const [includeLL, setIncludeLL] = useState(false)
+  const [llFactor, setLlFactor] = useState(0.25)
+  const [seismicOpen, setSeismicOpen] = useState(false)
   const [windSpeed, setWindSpeed] = useState(200)
   const [windExposure, setWindExposure] = useState('B')
 
@@ -48,6 +54,23 @@ export function BasicLoadsPage({
   const Ca = Z * 1.0
   const Cs = (Cv / rFactor).toFixed(4)
   const CsMin = (0.11 * Ca * importance).toFixed(4)
+
+  const SOIL_MAP: Record<string, number> = { SA: 1, SB: 2, SC: 3, SD: 4, SE: 5, SF: 5 }
+  const refLoads: { caseNumber: number; factor: number }[] = []
+  if (includeDL) refLoads.push({ caseNumber: 3, factor: 1.0 })
+  if (includeLL) refLoads.push({ caseNumber: 4, factor: llFactor })
+
+  const isNSCP = code.startsWith('NSCP')
+  const seismicDef: SeismicDefinition = {
+    code: isNSCP ? 'UBC_1997' : 'IBC_2006',
+    zone: Z,
+    importance,
+    rwx: rFactor,
+    rwz: rFactor,
+    soilType: SOIL_MAP[soilProfile] ?? 4,
+    referenceLoads: refLoads,
+  }
+  const seismicCode = generateFullSeismicBlock(seismicDef, 1, 2)
 
   // STAAD self-weight syntax
   const swCode = `LOAD 3 LOADTYPE Dead TITLE DL\nSELFWEIGHT Y -${swFactor}`
@@ -152,8 +175,77 @@ export function BasicLoadsPage({
             <PropStaticRow label="Factor" value="1.0" desc="E enters combos at 1.0E" />
           </PropGroup>
         </div>
-        <StaadCodeSection caseNumber={1} loadType="seismic_x" title="Eqx" members={[]} />
-        <StaadCodeSection caseNumber={2} loadType="seismic_z" title="Eqz" members={[]} />
+        <div style={{ borderTop: '1px solid var(--color-line-2)', padding: '8px 10px' }}>
+          <div className="sub-label" style={{ marginBottom: 6 }}>Seismic Mass (W) — REFERENCE LOAD</div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="checkbox" checked={includeDL} onChange={e => setIncludeDL(e.target.checked)} />
+              DL (Case 3) × 1.0
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input type="checkbox" checked={includeLL} onChange={e => setIncludeLL(e.target.checked)} />
+              LL (Case 4) ×
+            </label>
+            {includeLL && (
+              <input
+                className="input"
+                type="number"
+                step={0.05}
+                value={llFactor}
+                onChange={e => setLlFactor(Number(e.target.value))}
+                style={{ width: 50, height: 20, fontSize: 11 }}
+              />
+            )}
+            <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>
+              NSCP §208.5.1.1 — warehouse/storage: include 25% LL
+            </span>
+          </div>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--color-line-2)', marginTop: 6 }}>
+          <button
+            type="button"
+            onClick={() => setSeismicOpen(!seismicOpen)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%',
+              padding: '6px 10px', background: 'var(--color-bg)', border: 0,
+              cursor: 'pointer', fontSize: 10.5, color: 'var(--color-ink-2)',
+              fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
+            }}
+          >
+            <Icon name={seismicOpen ? 'chevDown' : 'chevR'} size={10} />
+            STAAD Code
+            <span className="mono" style={{ fontWeight: 400, color: 'var(--color-ink-4)', textTransform: 'none' }}>
+              DEFINE {isNSCP ? 'UBC' : 'IBC 2006'} LOAD + LOAD 1, 2
+            </span>
+          </button>
+
+          {seismicOpen && (
+            <div style={{ padding: '8px 10px' }}>
+              <div style={{ position: 'relative' }}>
+                <pre
+                  style={{
+                    margin: 0, padding: '10px 12px',
+                    fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.5,
+                    color: 'var(--color-ink)', background: 'var(--color-panel)',
+                    border: '1px solid var(--color-line)', borderRadius: 4,
+                    whiteSpace: 'pre', overflow: 'auto', maxHeight: 280,
+                  }}
+                >
+                  {seismicCode}
+                </pre>
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(seismicCode).catch(() => {}) }}
+                  className="btn sm"
+                  style={{ position: 'absolute', top: 6, right: 6 }}
+                >
+                  <Icon name="download" size={11} /> Copy
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Card 6 — Wind */}
