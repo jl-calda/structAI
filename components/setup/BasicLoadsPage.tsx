@@ -9,7 +9,7 @@ import {
   PropSelectRow,
   PropStaticRow,
 } from '@/components/ui/PropRow'
-import { LoadAssemblyApplier } from './LoadAssemblyApplier'
+import { EmbeddedAssemblyPicker } from './EmbeddedAssemblyPicker'
 import { StaadCodeSection } from './StaadCodeSection'
 import type { CodeStandard } from '@/lib/supabase/types'
 
@@ -34,20 +34,12 @@ export function BasicLoadsPage({
   const codeRef = code.replace(/_/g, ' ')
   const density = project.default_density_kn_m3
 
-  const [wDead, setWDead] = useState(1.50)
-  const [wCeiling, setWCeiling] = useState(0.25)
-  const [wMep, setWMep] = useState(0.50)
-  const [wPartitions, setWPartitions] = useState(1.00)
-  const [wLive, setWLive] = useState(1.90)
-  const [wRoofLive, setWRoofLive] = useState(0.60)
-  const [occupancy, setOccupancy] = useState('Residential')
-
+  const [swFactor, setSwFactor] = useState(1)
   const [seismicZone, setSeismicZone] = useState(project.seismic_zone)
   const [soilProfile, setSoilProfile] = useState('SD')
   const [importance, setImportance] = useState(1.0)
   const [rFactor, setRFactor] = useState(8.5)
   const [frameType, setFrameType] = useState('SMRF')
-
   const [windSpeed, setWindSpeed] = useState(200)
   const [windExposure, setWindExposure] = useState('B')
 
@@ -56,7 +48,9 @@ export function BasicLoadsPage({
   const Ca = Z * 1.0
   const Cs = (Cv / rFactor).toFixed(4)
   const CsMin = (0.11 * Ca * importance).toFixed(4)
-  const totalSDL = wDead + wCeiling + wMep + wPartitions
+
+  // STAAD self-weight syntax
+  const swCode = `LOAD 3 LOADTYPE Dead TITLE DL\nSELFWEIGHT Y -${swFactor}`
 
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -67,79 +61,75 @@ export function BasicLoadsPage({
         </span>
       </div>
 
-      {/* Load Assembly Calculator */}
-      <LoadAssemblyApplier codeStandard={code} members={members} />
-
-      {/* Card 1 — Self Weight */}
+      {/* Card 1 — Self Weight (STAAD SELFWEIGHT command, not UDL) */}
       <div className="card">
-        <div className="card-h"><span className="num-badge">1</span><span className="label">Self Weight (D<sub>sw</sub>)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">structural self-weight · factor 1.2 or 1.4</span></div>
+        <div className="card-h"><span className="num-badge">1</span><span className="label">Self Weight (D<sub>sw</sub>)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">STAAD SELFWEIGHT command · factor-based</span></div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--color-line-2)' }}>
-          <PropGroup title="1.1 · Concrete Self Weight">
+          <PropGroup title="1.1 · Self Weight Factor">
+            <PropInputRow label="Factor" unit="—" value={swFactor} onChange={setSwFactor} desc="SELFWEIGHT Y multiplier (typically 1)" />
             <PropCalcRow label="γc" value={density.toFixed(1)} unit="kN/m³" formula="from project Materials" expr={`= ${density}`} />
-            <PropStaticRow label="Factor" value="1.2 (with L) or 1.4 (alone)" desc="LRFD dead load factor" />
+            <PropStaticRow label="Note" value="STAAD computes self-weight from member sections × γ automatically" />
+            <PropStaticRow label="LRFD" value="1.2 (with L) or 1.4 (alone)" desc="factor in combinations" />
           </PropGroup>
-          <PropGroup title="1.2 · Typical Self Weights" border>
-            <PropStaticRow label="150mm slab" value={(0.15 * density).toFixed(2)} unit="kPa" />
-            <PropStaticRow label="200mm slab" value={(0.20 * density).toFixed(2)} unit="kPa" />
-            <PropStaticRow label="300×600 beam" value={(0.30 * 0.60 * density).toFixed(2)} unit="kN/m" />
-            <PropStaticRow label="400×400 col" value={(0.40 * 0.40 * density).toFixed(2)} unit="kN/m" />
+          <PropGroup title="1.2 · STAAD Code" border>
+            <pre className="mono" style={{ fontSize: 10.5, lineHeight: 1.5, padding: '6px 8px', background: '#FAFAF7', border: '1px solid var(--color-line)', borderRadius: 4, whiteSpace: 'pre', margin: 0 }}>
+              {swCode}
+            </pre>
+            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--color-ink-4)' }}>
+              SELFWEIGHT Y -1 tells STAAD to compute self-weight of all members in the negative Y (gravity) direction.
+              No member selection needed — it applies to ALL members automatically.
+            </div>
           </PropGroup>
         </div>
-        <StaadCodeSection caseNumber={3} loadType="dead" title="DL" members={members} />
       </div>
 
-      {/* Card 2 — SDL */}
+      {/* Card 2 — SDL (with embedded assembly picker for wall, slab, finishes, partitions) */}
       <div className="card">
-        <div className="card-h"><span className="num-badge">2</span><span className="label">Superimposed Dead Load (SDL)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">finishes · MEP · partitions · factor 1.2 or 1.4</span></div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--color-line-2)' }}>
-          <PropGroup title="2.1 · Components">
-            <PropInputRow label="Floor finish" unit="kPa" value={wDead} onChange={setWDead} desc="tiles, screed, waterproofing" />
-            <PropInputRow label="Ceiling" unit="kPa" value={wCeiling} onChange={setWCeiling} desc="suspended ceiling + fixtures" />
-            <PropInputRow label="MEP" unit="kPa" value={wMep} onChange={setWMep} desc="mech / elec / plumbing" />
-            <PropInputRow label="Partitions" unit="kPa" value={wPartitions} onChange={setWPartitions} desc="movable partitions (min 1.0)" />
-          </PropGroup>
-          <PropGroup title="2.2 · Summary" border>
-            <PropCalcRow label="Total SDL" value={totalSDL.toFixed(2)} unit="kPa" formula="Σ all SDL components" expr={`= ${wDead} + ${wCeiling} + ${wMep} + ${wPartitions}`} />
-            <PropStaticRow label="Factor" value="1.2 (with L) or 1.4 (alone)" desc="same as D" />
-            <PropStaticRow label="Code ref" value={`${codeRef} §4.2`} />
-          </PropGroup>
+        <div className="card-h"><span className="num-badge">2</span><span className="label">Superimposed Dead Load (SDL)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">walls · slab loads · finishes · MEP · partitions · factor 1.2 or 1.4</span></div>
+        <div className="card-b" style={{ padding: '6px 10px', fontSize: 11, color: 'var(--color-ink-3)' }}>
+          Add wall loads, slab tributary loads, floor finishes, and partitions from the assembly library below.
+          Multiple assemblies stack — e.g. add "150mm CHB wall" + "tiles" + "ceiling" for a complete floor load on a beam.
         </div>
-        <StaadCodeSection caseNumber={3} loadType="dead" title="SDL" members={members} />
+        <EmbeddedAssemblyPicker
+          codeStandard={code}
+          members={members}
+          caseNumber={3}
+          caseTitle="SDL"
+          loadType="dead"
+          allowedCategories={['wall', 'slab', 'floor_finish', 'partition', 'facade']}
+        />
       </div>
 
-      {/* Card 3 — Live Load */}
+      {/* Card 3 — Live Load (with embedded assembly picker for live loads) */}
       <div className="card">
         <div className="card-h"><span className="num-badge">3</span><span className="label">Live Load (L)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">occupancy live load · factor 1.6 primary / 1.0 companion</span></div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--color-line-2)' }}>
-          <PropGroup title="3.1 · Floor Live Load">
-            <PropInputRow label="LL" unit="kPa" value={wLive} onChange={setWLive} desc="design floor live load" />
-            <PropSelectRow label="Occupancy" value={occupancy} opts={['Residential', 'Office', 'Assembly', 'Storage', 'Parking', 'Hospital', 'Industrial']} onChange={setOccupancy} />
-            <PropStaticRow label="Code min" value={occupancyMinLL(occupancy)} unit="kPa" desc={`per ${codeRef} Table 205-1`} />
-          </PropGroup>
-          <PropGroup title="3.2 · Factors" border>
-            <PropStaticRow label="Primary" value="1.6" desc="when L is the principal variable" />
-            <PropStaticRow label="Companion" value="1.0" desc="when combined with W or E" />
-            <PropStaticRow label="Pattern" value="0.5" desc="checkerboard pattern loading" />
-          </PropGroup>
+        <div className="card-b" style={{ padding: '6px 10px', fontSize: 11, color: 'var(--color-ink-3)' }}>
+          Select the occupancy type from the code&apos;s live load table. The load is applied as a UDL via tributary width.
         </div>
-        <StaadCodeSection caseNumber={4} loadType="live" title="LL" members={members} />
+        <EmbeddedAssemblyPicker
+          codeStandard={code}
+          members={members}
+          caseNumber={4}
+          caseTitle="LL"
+          loadType="live"
+          allowedCategories={['live']}
+        />
       </div>
 
       {/* Card 4 — Roof Live Load */}
       <div className="card">
         <div className="card-h"><span className="num-badge">4</span><span className="label">Roof Live Load (Lr)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">roof maintenance · factor 1.6 primary / 0.5 companion</span></div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--color-line-2)' }}>
-          <PropGroup title="4.1 · Roof Live Load">
-            <PropInputRow label="Lr" unit="kPa" value={wRoofLive} onChange={setWRoofLive} desc="roof live load" />
-            <PropStaticRow label="Code min" value="0.60" unit="kPa" desc="ordinary flat roof" />
-            <PropStaticRow label="Reducible" value="Yes" desc="per tributary area" />
-          </PropGroup>
-          <PropGroup title="4.2 · Factors" border>
-            <PropStaticRow label="Primary" value="1.6" desc="1.2D + 1.6Lr + …" />
-            <PropStaticRow label="Companion" value="0.5" desc="1.2D + 1.6L + 0.5Lr" />
-          </PropGroup>
+        <div className="card-b" style={{ padding: '6px 10px', fontSize: 11, color: 'var(--color-ink-3)' }}>
+          Roof live load for maintenance access. Select the roof type from the library or enter directly.
         </div>
-        <StaadCodeSection caseNumber={5} loadType="roof_live" title="LR" members={members} />
+        <EmbeddedAssemblyPicker
+          codeStandard={code}
+          members={members}
+          caseNumber={5}
+          caseTitle="LR"
+          loadType="live"
+          allowedCategories={['live', 'stair']}
+        />
       </div>
 
       {/* Card 5 — Seismic */}
@@ -190,12 +180,4 @@ export function BasicLoadsPage({
       </div>
     </div>
   )
-}
-
-function occupancyMinLL(occ: string): string {
-  const map: Record<string, string> = {
-    Residential: '1.90', Office: '2.40', Assembly: '4.80',
-    Storage: '6.00', Parking: '2.40', Hospital: '3.80', Industrial: '6.00',
-  }
-  return map[occ] ?? '1.90'
 }
