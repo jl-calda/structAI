@@ -243,6 +243,81 @@ export function buildNSCPUltimateCombos(cm: CaseMap, rho = 1): ComboInput[] {
   return combos.filter(c => c.factors.every(ff => ff.caseNumber > 0))
 }
 
+// ---------------------------------------------------------------------------
+// Seismic definition block (DEFINE UBC LOAD / DEFINE IBC 2006 LOAD)
+// ---------------------------------------------------------------------------
+
+export type SeismicRefLoad = { caseNumber: number; factor: number }
+
+export type SeismicDefinition = {
+  code: 'UBC_1997' | 'IBC_2006'
+  zone?: number
+  importance: number
+  rwx: number
+  rwz: number
+  soilType: number
+  sds?: number
+  sd1?: number
+  s1?: number
+  sclass?: number
+  ct?: number
+  referenceLoads: SeismicRefLoad[]
+}
+
+export function generateSeismicDefinition(def: SeismicDefinition): string {
+  const lines: string[] = []
+
+  if (def.code === 'UBC_1997') {
+    lines.push('DEFINE UBC LOAD')
+    lines.push(`ZONE ${def.zone ?? 0.4} I ${def.importance} RWX ${def.rwx} RWZ ${def.rwz}`)
+    lines.push(`STYP ${def.soilType}`)
+  } else {
+    lines.push('DEFINE IBC 2006 LOAD')
+    lines.push(`SDS ${def.sds ?? 1.0} SD1 ${def.sd1 ?? 0.6} S1 ${def.s1 ?? 0.4} IE ${def.importance}`)
+    lines.push(`RX ${def.rwx} RZ ${def.rwz} SCLASS ${def.sclass ?? 4} CT ${def.ct ?? 0.016}`)
+  }
+
+  if (def.referenceLoads.length > 0) {
+    lines.push('REFERENCE LOAD')
+    const parts = def.referenceLoads.map(r => `${r.caseNumber} ${r.factor}`).join(' ')
+    lines.push(`R ${parts}`)
+  }
+
+  return lines.join('\n')
+}
+
+export function generateSeismicLoadCase(
+  caseNumber: number,
+  title: string,
+  direction: 'X' | 'Z',
+  codeKeyword: 'UBC' | 'IBC' = 'UBC',
+  factor = 1.0,
+): string {
+  const lines: string[] = []
+  lines.push(`LOAD ${caseNumber} LOADTYPE Seismic TITLE ${title}`)
+  lines.push(`${codeKeyword} LOAD ${direction} ${factor}`)
+  return lines.join('\n')
+}
+
+export function generateFullSeismicBlock(
+  def: SeismicDefinition,
+  eqxCase: number,
+  eqzCase: number,
+): string {
+  const keyword = def.code === 'UBC_1997' ? 'UBC' : 'IBC'
+  return [
+    generateSeismicDefinition(def),
+    '',
+    generateSeismicLoadCase(eqxCase, 'Eqx', 'X', keyword),
+    '',
+    generateSeismicLoadCase(eqzCase, 'Eqz', 'Z', keyword),
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// NSCP 2015 full combo matrix (25 ultimate + 12 allowable)
+// ---------------------------------------------------------------------------
+
 export function buildNSCPAllowableCombos(cm: CaseMap): ComboInput[] {
   const eqx = cm.seismic_x ?? 0
   const eqz = cm.seismic_z ?? 0
