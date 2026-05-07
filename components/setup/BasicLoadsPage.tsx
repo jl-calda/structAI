@@ -9,6 +9,7 @@ import {
   PropSelectRow,
   PropStaticRow,
 } from '@/components/ui/PropRow'
+import { LoadAssemblyApplier } from './LoadAssemblyApplier'
 import { StaadCodeSection } from './StaadCodeSection'
 import type { CodeStandard } from '@/lib/supabase/types'
 
@@ -65,6 +66,9 @@ export function BasicLoadsPage({
           {codeRef} · define each load type with its LRFD factor
         </span>
       </div>
+
+      {/* Load Assembly Calculator */}
+      <LoadAssemblyApplier codeStandard={code} members={members} />
 
       {/* Card 1 — Self Weight */}
       <div className="card">

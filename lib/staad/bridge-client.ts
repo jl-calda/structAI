@@ -64,6 +64,29 @@ export function pushCombinations(
   return bridgePost('/push-combinations', payload)
 }
 
+export type PushLoadsPayload = {
+  project_id: string
+  case_number: number
+  load_type: string
+  title: string
+  member_loads: {
+    member_id: number
+    load_type: 'UNI' | 'CON' | 'LIN'
+    direction: 'GY'
+    w?: number
+    w1?: number
+    w2?: number
+    p?: number
+    d?: number
+    d1?: number
+    d2?: number
+  }[]
+}
+
+export function pushLoads(payload: PushLoadsPayload): Promise<BridgeOutcome> {
+  return bridgePost('/push-loads', payload)
+}
+
 export function requestResync(projectId: string): Promise<BridgeOutcome> {
   return bridgePost('/resync', { project_id: projectId })
 }

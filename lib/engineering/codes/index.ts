@@ -217,6 +217,50 @@ export interface CodeProvider {
   readonly default_dia_long: number
   /** Default stirrup diameter for new designs. */
   readonly default_dia_stirrup: number
+
+  // ─── Load assembly library ─────────────────────────────────────────────
+  /** Code-specific standard load assemblies grouped by category. */
+  readonly load_assemblies: readonly LoadAssemblyCategoryGroup[]
+}
+
+// ---------------------------------------------------------------------------
+// Load assembly types
+// ---------------------------------------------------------------------------
+
+export type LoadAssemblyComponent = {
+  name: string
+  thickness_mm?: number
+  density_kn_m3?: number
+  weight_kpa: number
+}
+
+export type LoadAssemblyCategory =
+  | 'wall'
+  | 'slab'
+  | 'floor_finish'
+  | 'partition'
+  | 'facade'
+  | 'equipment'
+  | 'stair'
+  | 'live'
+  | 'other'
+
+export type LoadAssembly = {
+  id: string
+  name: string
+  category: LoadAssemblyCategory
+  code_clause: string
+  load_type: 'dead' | 'live'
+  unit_weight_kpa: number
+  requires_height: boolean
+  requires_trib_width: boolean
+  components: LoadAssemblyComponent[]
+}
+
+export type LoadAssemblyCategoryGroup = {
+  category: LoadAssemblyCategory
+  label: string
+  assemblies: readonly LoadAssembly[]
 }
 
 // ---------------------------------------------------------------------------
