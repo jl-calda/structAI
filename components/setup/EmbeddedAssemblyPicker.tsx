@@ -71,6 +71,9 @@ export function EmbeddedAssemblyPicker({
     return item.assembly.unit_weight_kpa
   }
 
+  const itemUnit = (item: AssemblyItem) =>
+    item.assembly.requires_height || item.assembly.requires_trib_width ? 'kN/m' : 'kN/m²'
+
   const groupTotal = (g: LoadGroup) => g.items.reduce((s, it) => s + computeItemLoad(it), 0)
 
   // Build MEMBER LOAD lines (for 'member' mode groups)
@@ -189,7 +192,7 @@ export function EmbeddedAssemblyPicker({
                 >
                   <Icon name="plus" size={9} />
                   <span style={{ flex: 1 }}>{a.name}</span>
-                  <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>{a.unit_weight_kpa.toFixed(2)}</span>
+                  <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>{a.unit_weight_kpa.toFixed(2)} kN/m²</span>
                 </button>
               ))}
             </div>
@@ -204,21 +207,22 @@ export function EmbeddedAssemblyPicker({
             <thead>
               <tr>
                 <th>#</th><th>Assembly</th>
-                <th className="num" style={{ width: 60, textAlign: 'right' }}>kN/m²</th>
+                <th className="num" style={{ width: 70, textAlign: 'right' }}>Unit wt</th>
                 <th style={{ width: 90 }}>Dim</th>
-                <th className="num" style={{ width: 70, textAlign: 'right' }}>kN/m</th>
+                <th className="num" style={{ width: 80, textAlign: 'right' }}>Load</th>
                 <th style={{ width: 20 }}></th>
               </tr>
             </thead>
             <tbody>
               {groups.map(g => {
                 const total = groupTotal(g)
+                const totalUnit = g.items.length > 0 ? itemUnit(g.items[0]) : 'kN/m²'
                 return [
                   <tr key={`h-${g.id}`} style={{ background: 'var(--color-header)' }}>
                     <td colSpan={5} style={{ fontWeight: 600, fontSize: 10 }}>
                       {g.label}
                       <span className="mono" style={{ fontWeight: 400, color: 'var(--color-ink-4)', marginLeft: 8 }}>
-                        {total.toFixed(2)} kN/m
+                        {total.toFixed(2)} {totalUnit}
                       </span>
                     </td>
                     <td>
@@ -231,7 +235,7 @@ export function EmbeddedAssemblyPicker({
                       <tr key={`${g.id}-${i}`}>
                         <td className="num">{i + 1}</td>
                         <td style={{ fontSize: 10 }}>{it.assembly.name}</td>
-                        <td className="num" style={{ textAlign: 'right' }}>{it.assembly.unit_weight_kpa.toFixed(2)}</td>
+                        <td className="num" style={{ textAlign: 'right' }}>{it.assembly.unit_weight_kpa.toFixed(2)} <span style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>kN/m²</span></td>
                         <td>
                           {it.assembly.requires_height && (
                             <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 10 }}>
@@ -245,7 +249,7 @@ export function EmbeddedAssemblyPicker({
                           )}
                           {!it.assembly.requires_height && !it.assembly.requires_trib_width && <span style={{ fontSize: 9, color: 'var(--color-ink-4)' }}>—</span>}
                         </td>
-                        <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{load.toFixed(2)}</td>
+                        <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{load.toFixed(2)} <span style={{ fontWeight: 400, color: 'var(--color-ink-4)', fontSize: 9 }}>{itemUnit(it)}</span></td>
                         <td><button type="button" onClick={() => removeItemFromGroup(g.id, i)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 11, padding: 0 }}>×</button></td>
                       </tr>
                     )
