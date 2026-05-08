@@ -3,6 +3,7 @@
  *
  * Steps:
  *   1. Member Properties (geometry, materials, framing)
+ *   1b. Member Definition & Loads (STAAD member sets + manual input)
  *   2. Reinforcement Design (cross-section + rebar editor + ties)
  *   3. Design Forces (P-M interaction + biaxial surface)
  *   4. Elevation / Tie Layout (confined zones)
@@ -17,6 +18,7 @@ import { ColCalcBreakdownCard } from '@/components/columns/ColCalcBreakdownCard'
 import { ColDevSpliceCard } from '@/components/columns/ColDevSpliceCard'
 import { ColRebarMTO } from '@/components/columns/ColRebarMTO'
 import { ColumnElevation } from '@/components/columns/ColumnElevation'
+import { ColumnMemberLoadsCard } from '@/components/columns/MemberLoadsCard'
 import { ColumnPropertiesCard } from '@/components/columns/ColumnPropertiesCard'
 import { ColumnRebarEditor } from '@/components/columns/ColumnRebarEditor'
 import { PmDiagram } from '@/components/columns/PmDiagram'
@@ -31,7 +33,7 @@ import { getCode } from '@/lib/engineering/codes'
 import { buildPmCurve } from '@/lib/engineering/concrete/column/interaction'
 import { getColumnDesign } from '@/lib/data/columns'
 import { getProject } from '@/lib/data/projects'
-import { getLatestSync } from '@/lib/data/staad'
+import { getLatestSync, listMembers } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,10 +43,11 @@ export default async function ColumnDesignPage({
   params: Promise<{ id: string; columnId: string }>
 }) {
   const { id: projectId, columnId } = await params
-  const [project, result, latest] = await Promise.all([
+  const [project, result, latest, allMembers] = await Promise.all([
     getProject(projectId),
     getColumnDesign(columnId),
     getLatestSync(projectId),
+    listMembers(projectId),
   ])
   if (!project || !result) notFound()
 
@@ -163,6 +166,19 @@ export default async function ColumnDesignPage({
           }}
           staadRef={design.member_ids.length > 0 ? design.member_ids.join(' / ') : undefined}
           code_standard={project.code_standard}
+        />
+
+        {/* STEP 1b — Member Definition & Loads */}
+        <ColumnMemberLoadsCard
+          projectId={projectId}
+          initialMemberIds={design.member_ids}
+          allMembers={allMembers.map(m => ({
+            member_id: m.member_id,
+            section_name: m.section_name,
+            length_mm: m.length_mm,
+            member_type: m.member_type,
+          }))}
+          designLabel={design.label}
         />
 
         {/* STEP 2 — Reinforcement Design */}
