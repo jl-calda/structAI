@@ -62,7 +62,6 @@ export function EmbeddedAssemblyPicker({
     [code.load_assemblies, allowedCategories],
   )
 
-  const [open, setOpen] = useState(false)
   const [groups, setGroups] = useState<LoadGroup[]>([])
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -174,89 +173,67 @@ export function EmbeddedAssemblyPicker({
 
   return (
     <div style={{ borderTop: '1px solid var(--color-line-2)' }}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-          padding: '6px 10px', background: 'var(--color-bg)', border: 0,
-          cursor: 'pointer', fontSize: 10.5, color: 'var(--color-ink-2)',
-          fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em',
-        }}
-      >
-        <Icon name={open ? 'chevDown' : 'chevR'} size={10} />
-        Load entries
-        {groups.length > 0 && (
-          <span className="mono" style={{ fontWeight: 400, color: 'var(--color-pass)' }}>
-            · {groups.length} group{groups.length > 1 ? 's' : ''} · {allMemberLoads.length + allFloorLoads.length} loads
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {/* Assembly catalog — all options shown upfront */}
-          <div>
-            {filteredGroups.map(fg => (
-              <div key={fg.category} style={{ marginBottom: 6 }}>
-                <div className="sub-label" style={{ marginBottom: 3, textTransform: 'capitalize' }}>{fg.category.replace(/_/g, ' ')}</div>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {fg.assemblies.map(a => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onClick={() => addAssemblyDirect(a)}
-                      style={{
-                        padding: '3px 8px', fontSize: 10, border: '1px solid var(--color-line)',
-                        borderRadius: 3, background: '#fff', cursor: 'pointer',
-                        color: 'var(--color-ink-2)', display: 'inline-flex', alignItems: 'center', gap: 4,
-                      }}
-                    >
-                      <Icon name="plus" size={9} />
-                      {a.name}
-                      <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>{a.unit_weight_kpa.toFixed(2)} kN/m²</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Group tabs (created implicitly when user adds assemblies) */}
-          {groups.length > 0 && (
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-              {groups.map(g => (
+      {/* Assembly catalog — columns by category */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${filteredGroups.length}, 1fr)`, gap: 0, borderBottom: groups.length > 0 ? '1px solid var(--color-line-2)' : 'none' }}>
+        {filteredGroups.map((fg, ci) => (
+          <div key={fg.category} style={{ padding: '8px 10px', borderLeft: ci > 0 ? '1px solid var(--color-line-2)' : 'none' }}>
+            <div className="sub-label" style={{ marginBottom: 6, textTransform: 'capitalize' }}>{fg.category.replace(/_/g, ' ')}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {fg.assemblies.map(a => (
                 <button
-                  key={g.id}
+                  key={a.id}
                   type="button"
-                  onClick={() => setActiveGroupId(g.id)}
+                  onClick={() => addAssemblyDirect(a)}
                   style={{
-                    padding: '3px 10px', fontSize: 10.5, fontWeight: 600,
-                    border: '1px solid ' + (activeGroupId === g.id ? 'var(--color-ink)' : 'var(--color-line)'),
-                    borderRadius: 3, cursor: 'pointer',
-                    background: activeGroupId === g.id ? 'var(--color-ink)' : '#fff',
-                    color: activeGroupId === g.id ? '#fff' : 'var(--color-ink-2)',
-                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '3px 8px', fontSize: 10, border: '1px solid var(--color-line)',
+                    borderRadius: 3, background: '#fff', cursor: 'pointer', textAlign: 'left',
+                    color: 'var(--color-ink-2)', display: 'flex', alignItems: 'center', gap: 4,
                   }}
                 >
-                  {g.label}
-                  <span className="mono" style={{ fontSize: 9, opacity: 0.7 }}>
-                    {groupTotal(g).toFixed(1)} kN/m · {g.memberIds.length}m
-                  </span>
-                  <span
-                    onClick={e => { e.stopPropagation(); removeGroup(g.id) }}
-                    style={{ marginLeft: 4, cursor: 'pointer', opacity: 0.6 }}
-                  >×</span>
+                  <Icon name="plus" size={9} />
+                  <span style={{ flex: 1 }}>{a.name}</span>
+                  <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>{a.unit_weight_kpa.toFixed(2)}</span>
                 </button>
               ))}
-              <div className="divider" style={{ height: 20 }} />
-              <button type="button" className="btn sm" onClick={() => addGroup('Wall load', 'member')}>
-                <Icon name="plus" size={10} /> New group
-              </button>
             </div>
-          )}
+          </div>
+        ))}
+      </div>
 
-          {/* Active group editor */}
+      {/* Group tabs + active group editor */}
+      {groups.length > 0 && (
+        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+            {groups.map(g => (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => setActiveGroupId(g.id)}
+                style={{
+                  padding: '3px 10px', fontSize: 10.5, fontWeight: 600,
+                  border: '1px solid ' + (activeGroupId === g.id ? 'var(--color-ink)' : 'var(--color-line)'),
+                  borderRadius: 3, cursor: 'pointer',
+                  background: activeGroupId === g.id ? 'var(--color-ink)' : '#fff',
+                  color: activeGroupId === g.id ? '#fff' : 'var(--color-ink-2)',
+                  display: 'flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                {g.label}
+                <span className="mono" style={{ fontSize: 9, opacity: 0.7 }}>
+                  {groupTotal(g).toFixed(1)} kN/m · {g.memberIds.length}m
+                </span>
+                <span
+                  onClick={e => { e.stopPropagation(); removeGroup(g.id) }}
+                  style={{ marginLeft: 4, cursor: 'pointer', opacity: 0.6 }}
+                >×</span>
+              </button>
+            ))}
+            <div className="divider" style={{ height: 20 }} />
+            <button type="button" className="btn sm" onClick={() => addGroup('Wall load', 'member')}>
+              <Icon name="plus" size={10} /> New group
+            </button>
+          </div>
+
           {activeGroup && activeGroup.items.length > 0 && (
             <div className="card" style={{ borderRadius: 4 }}>
               <table className="t" style={{ fontSize: 10.5 }}>
@@ -303,7 +280,6 @@ export function EmbeddedAssemblyPicker({
                 </tbody>
               </table>
 
-              {/* Floor load settings */}
               {activeGroup.mode === 'floor' && (
                 <div style={{ padding: '6px 8px', borderTop: '1px solid var(--color-line-2)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
@@ -331,7 +307,6 @@ export function EmbeddedAssemblyPicker({
                 </div>
               )}
 
-              {/* Member selector */}
               {members.length > 0 && (activeGroup.mode === 'member' || activeGroup.floorMethod === 'members') && (
                 <div style={{ padding: '6px 8px', borderTop: '1px solid var(--color-line-2)' }}>
                   <span className="sub-label">
