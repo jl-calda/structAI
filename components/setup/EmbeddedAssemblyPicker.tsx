@@ -63,7 +63,6 @@ export function EmbeddedAssemblyPicker({
   )
 
   const [groups, setGroups] = useState<LoadGroup[]>([])
-  const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const computeItemLoad = (item: AssemblyItem) => {
@@ -113,12 +112,10 @@ export function EmbeddedAssemblyPicker({
       id, label, mode, items: [], memberIds: [],
       distribution: 'twoway', floorMethod: 'yrange', yLevel: 3.0,
     }])
-    setActiveGroupId(id)
   }
 
   const removeGroup = (id: number) => {
     setGroups(prev => prev.filter(g => g.id !== id))
-    if (activeGroupId === id) setActiveGroupId(groups.length > 1 ? groups.find(g => g.id !== id)?.id ?? null : null)
   }
 
   const addAssemblyToGroup = (groupId: number, a: LoadAssembly) => {
@@ -154,7 +151,11 @@ export function EmbeddedAssemblyPicker({
   const addAssemblyDirect = (a: LoadAssembly) => {
     const isFloorType = a.category === 'slab' || a.category === 'floor_finish'
     const mode: 'member' | 'floor' = isFloorType ? 'floor' : 'member'
-    if (groups.length === 0 || !activeGroupId) {
+    const existing = groups.filter(g => g.mode === mode)
+    if (existing.length > 0) {
+      const target = existing[existing.length - 1]
+      addAssemblyToGroup(target.id, a)
+    } else {
       const label = isFloorType ? 'Floor load' : 'Wall load'
       addGroup(label, mode)
       setTimeout(() => {
@@ -164,12 +165,8 @@ export function EmbeddedAssemblyPicker({
           return prev.map(g => g.id === last.id ? { ...g, items: [...g.items, { assembly: a, height: 3.0, tribWidth: 3.0 }] } : g)
         })
       }, 0)
-    } else {
-      addAssemblyToGroup(activeGroupId, a)
     }
   }
-
-  const activeGroup = groups.find(g => g.id === activeGroupId)
 
   return (
     <div style={{ borderTop: '1px solid var(--color-line-2)' }}>
@@ -200,138 +197,63 @@ export function EmbeddedAssemblyPicker({
         ))}
       </div>
 
-      {/* Group tabs + active group editor */}
+      {/* All groups in one table with group headers */}
       {groups.length > 0 && (
-        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-            {groups.map(g => (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => setActiveGroupId(g.id)}
-                style={{
-                  padding: '3px 10px', fontSize: 10.5, fontWeight: 600,
-                  border: '1px solid ' + (activeGroupId === g.id ? 'var(--color-ink)' : 'var(--color-line)'),
-                  borderRadius: 3, cursor: 'pointer',
-                  background: activeGroupId === g.id ? 'var(--color-ink)' : '#fff',
-                  color: activeGroupId === g.id ? '#fff' : 'var(--color-ink-2)',
-                  display: 'flex', alignItems: 'center', gap: 4,
-                }}
-              >
-                {g.label}
-                <span className="mono" style={{ fontSize: 9, opacity: 0.7 }}>
-                  {groupTotal(g).toFixed(1)} kN/m · {g.memberIds.length}m
-                </span>
-                <span
-                  onClick={e => { e.stopPropagation(); removeGroup(g.id) }}
-                  style={{ marginLeft: 4, cursor: 'pointer', opacity: 0.6 }}
-                >×</span>
-              </button>
-            ))}
-            <div className="divider" style={{ height: 20 }} />
-            <button type="button" className="btn sm" onClick={() => addGroup('Wall load', 'member')}>
-              <Icon name="plus" size={10} /> New group
-            </button>
-          </div>
-
-          {activeGroup && activeGroup.items.length > 0 && (
-            <div className="card" style={{ borderRadius: 4 }}>
-              <table className="t" style={{ fontSize: 10.5 }}>
-                <thead>
-                  <tr>
-                    <th>#</th><th>Assembly</th>
-                    <th className="num" style={{ width: 60, textAlign: 'right' }}>kN/m²</th>
-                    <th style={{ width: 90 }}>Dim</th>
-                    <th className="num" style={{ width: 70, textAlign: 'right' }}>kN/m</th>
-                    <th style={{ width: 20 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeGroup.items.map((it, i) => {
+        <div style={{ borderTop: '1px solid var(--color-line-2)' }}>
+          <table className="t" style={{ fontSize: 10.5 }}>
+            <thead>
+              <tr>
+                <th>#</th><th>Assembly</th>
+                <th className="num" style={{ width: 60, textAlign: 'right' }}>kN/m²</th>
+                <th style={{ width: 90 }}>Dim</th>
+                <th className="num" style={{ width: 70, textAlign: 'right' }}>kN/m</th>
+                <th style={{ width: 20 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map(g => {
+                const total = groupTotal(g)
+                return [
+                  <tr key={`h-${g.id}`} style={{ background: 'var(--color-header)' }}>
+                    <td colSpan={5} style={{ fontWeight: 600, fontSize: 10 }}>
+                      {g.label}
+                      <span className="mono" style={{ fontWeight: 400, color: 'var(--color-ink-4)', marginLeft: 8 }}>
+                        {total.toFixed(2)} kN/m
+                      </span>
+                    </td>
+                    <td>
+                      <button type="button" onClick={() => removeGroup(g.id)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 11, padding: 0 }}>×</button>
+                    </td>
+                  </tr>,
+                  ...g.items.map((it, i) => {
                     const load = computeItemLoad(it)
                     return (
-                      <tr key={i}>
+                      <tr key={`${g.id}-${i}`}>
                         <td className="num">{i + 1}</td>
                         <td style={{ fontSize: 10 }}>{it.assembly.name}</td>
                         <td className="num" style={{ textAlign: 'right' }}>{it.assembly.unit_weight_kpa.toFixed(2)}</td>
                         <td>
                           {it.assembly.requires_height && (
                             <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 10 }}>
-                              h=<input className="input" type="number" value={it.height} onChange={e => updateItemInGroup(activeGroup.id, i, 'height', Number(e.target.value))} style={{ width: 40, height: 16, fontSize: 10 }} step="0.1" />m
+                              h=<input className="input" type="number" value={it.height} onChange={e => updateItemInGroup(g.id, i, 'height', Number(e.target.value))} style={{ width: 40, height: 16, fontSize: 10 }} step="0.1" />m
                             </span>
                           )}
                           {it.assembly.requires_trib_width && (
                             <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 10 }}>
-                              w=<input className="input" type="number" value={it.tribWidth} onChange={e => updateItemInGroup(activeGroup.id, i, 'tribWidth', Number(e.target.value))} style={{ width: 40, height: 16, fontSize: 10 }} step="0.1" />m
+                              w=<input className="input" type="number" value={it.tribWidth} onChange={e => updateItemInGroup(g.id, i, 'tribWidth', Number(e.target.value))} style={{ width: 40, height: 16, fontSize: 10 }} step="0.1" />m
                             </span>
                           )}
                           {!it.assembly.requires_height && !it.assembly.requires_trib_width && <span style={{ fontSize: 9, color: 'var(--color-ink-4)' }}>—</span>}
                         </td>
                         <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{load.toFixed(2)}</td>
-                        <td><button type="button" onClick={() => removeItemFromGroup(activeGroup.id, i)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 11, padding: 0 }}>×</button></td>
+                        <td><button type="button" onClick={() => removeItemFromGroup(g.id, i)} style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 11, padding: 0 }}>×</button></td>
                       </tr>
                     )
-                  })}
-                  <tr style={{ background: 'var(--color-header)', fontWeight: 600 }}>
-                    <td colSpan={4}>Total</td>
-                    <td className="num" style={{ textAlign: 'right', fontSize: 11 }}>{groupTotal(activeGroup).toFixed(2)}</td>
-                    <td></td>
-                  </tr>
-                </tbody>
-              </table>
-
-              {activeGroup.mode === 'floor' && (
-                <div style={{ padding: '6px 8px', borderTop: '1px solid var(--color-line-2)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
-                    Distribution:
-                    <select className="select" value={activeGroup.distribution} onChange={e => setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, distribution: e.target.value as 'twoway' | 'oneway_x' | 'oneway_z' } : g))} style={{ height: 22, width: 110 }}>
-                      <option value="twoway">Two-way</option>
-                      <option value="oneway_x">One-way X</option>
-                      <option value="oneway_z">One-way Z</option>
-                    </select>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
-                    Apply by:
-                    <select className="select" value={activeGroup.floorMethod} onChange={e => setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, floorMethod: e.target.value as 'yrange' | 'members' } : g))} style={{ height: 22, width: 100 }}>
-                      <option value="yrange">Y level</option>
-                      <option value="members">Members</option>
-                    </select>
-                  </label>
-                  {activeGroup.floorMethod === 'yrange' && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5 }}>
-                      Y =
-                      <input className="input" type="number" value={activeGroup.yLevel} onChange={e => setGroups(prev => prev.map(g => g.id === activeGroup.id ? { ...g, yLevel: Number(e.target.value) } : g))} style={{ width: 60, height: 20 }} step="0.1" />
-                      m
-                    </label>
-                  )}
-                </div>
-              )}
-
-              {members.length > 0 && (activeGroup.mode === 'member' || activeGroup.floorMethod === 'members') && (
-                <div style={{ padding: '6px 8px', borderTop: '1px solid var(--color-line-2)' }}>
-                  <span className="sub-label">
-                    Members ({activeGroup.memberIds.length} selected)
-                  </span>
-                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', marginTop: 4 }}>
-                    {members.map(m => {
-                      const sel = activeGroup.memberIds.includes(m.member_id)
-                      return (
-                        <button key={m.member_id} type="button" onClick={() => toggleMemberInGroup(activeGroup.id, m.member_id)}
-                          style={{
-                            padding: '2px 5px', fontSize: 10, fontFamily: 'var(--font-mono)',
-                            borderRadius: 3, cursor: 'pointer',
-                            border: '1px solid ' + (sel ? 'var(--color-ink)' : 'var(--color-line)'),
-                            background: sel ? 'var(--color-ink)' : '#fff',
-                            color: sel ? '#fff' : 'var(--color-ink-3)',
-                          }}
-                        >{m.member_id}</button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+                  }),
+                ]
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
