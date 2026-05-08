@@ -1,15 +1,22 @@
 /**
- * Column Design page — modern monochrome layout per Claude Design bundle.
+ * Column Design page — full 7-step layout per Claude Design bundle.
  *
- * Sections:
- *   1. Member Properties (geometry, materials, slenderness)
- *   2. Reinforcement & Cross-section (rebar editor + live preview)
- *   3. P-M Interaction Diagram
- *   4. Check Results (forces / interaction / shear / ties)
+ * Steps:
+ *   1. Member Properties (geometry, materials, framing)
+ *   2. Reinforcement Design (cross-section + rebar editor + ties)
+ *   3. Design Forces (P-M interaction + biaxial surface)
+ *   4. Elevation / Tie Layout (confined zones)
+ *   4b. Development & Splicing
+ *   5. Calculation Breakdown (6 tabs)
+ *   6. Material Take-Off (cutting list)
  */
 import { notFound } from 'next/navigation'
 
-import { ColumnCrossSection } from '@/components/columns/ColumnCrossSection'
+import { BiaxialSurface } from '@/components/columns/BiaxialSurface'
+import { ColCalcBreakdownCard } from '@/components/columns/ColCalcBreakdownCard'
+import { ColDevSpliceCard } from '@/components/columns/ColDevSpliceCard'
+import { ColRebarMTO } from '@/components/columns/ColRebarMTO'
+import { ColumnElevation } from '@/components/columns/ColumnElevation'
 import { ColumnPropertiesCard } from '@/components/columns/ColumnPropertiesCard'
 import { ColumnRebarEditor } from '@/components/columns/ColumnRebarEditor'
 import { PmDiagram } from '@/components/columns/PmDiagram'
@@ -44,25 +51,38 @@ export default async function ColumnDesignPage({
   const { design, rebar, checks } = result
 
   const code = getCode(project.code_standard)
-  const d_prime = design.clear_cover_mm + (rebar?.tie_dia_mm ?? 10) + (rebar?.bar_dia_mm ?? 20) / 2
+  const barDia = rebar?.bar_dia_mm ?? code.default_dia_long
+  const tieDia = rebar?.tie_dia_mm ?? code.default_dia_stirrup
+  const barCount = rebar?.bar_count ?? 8
+  const tieMid = rebar?.tie_spacing_mm ?? 200
+  const tieEnd = rebar?.tie_spacing_end_mm ?? 100
+  const tieEndZone = rebar?.tie_end_zone_length_mm ?? Math.max(design.h_mm, Math.round(design.height_mm / 6), 450)
+
+  const d_prime = design.clear_cover_mm + tieDia + barDia / 2
   const curve = buildPmCurve(
-    {
-      b_mm: design.b_mm,
-      h_mm: design.h_mm,
-      d_prime_mm: d_prime,
-    },
-    {
-      bar_count: rebar?.bar_count ?? 4,
-      bar_dia_mm: rebar?.bar_dia_mm ?? 20,
-      type: 'tied',
-    },
-    {
-      fc_mpa: design.fc_mpa,
-      fy_mpa: design.fy_mpa,
-      fys_mpa: design.fys_mpa,
-    },
+    { b_mm: design.b_mm, h_mm: design.h_mm, d_prime_mm: d_prime },
+    { bar_count: barCount, bar_dia_mm: barDia, type: 'tied' },
+    { fc_mpa: design.fc_mpa, fy_mpa: design.fy_mpa, fys_mpa: design.fys_mpa },
     code,
   )
+
+  const A = (d: number) => Math.PI * d * d / 4
+  const nLong = barCount
+  const AsLong = nLong * A(barDia)
+  const Ag = design.b_mm * design.h_mm
+  const rhoG = AsLong / Ag
+  const dEff = design.h_mm - design.clear_cover_mm - tieDia - barDia / 2
+
+  const phi = code.phi_axial(0, 'tied')
+  const factor = code.Pn_max_factor('tied')
+  const Po = 0.85 * design.fc_mpa * (Ag - AsLong) + design.fy_mpa * AsLong
+  const phiPnMax = factor * phi * Po / 1000
+
+  const Pu = checks?.pu_kn ?? 0
+  const Mux = checks?.mu_major_knm ?? 0
+  const Muy = checks?.mu_minor_knm ?? 0
+  const Vu = checks?.vu_kn ?? 0
+  const phiMn = checks?.phi_mn_knm ?? (phiPnMax > 0 ? phiPnMax * 0.3 : 100)
 
   const status: 'pass' | 'fail' | 'pending' =
     design.design_status === 'pass' || design.design_status === 'fail'
@@ -87,12 +107,13 @@ export default async function ColumnDesignPage({
             {design.label}
           </span>
           <span className="tag">COLUMN</span>
+          <span className="tag">TIED</span>
           <span className={'tag ' + (status === 'pass' ? 'pass' : status === 'fail' ? 'fail' : 'warn')}>
             {status.toUpperCase()}
           </span>
           {checks?.slender ? <span className="tag warn">SLENDER</span> : null}
           <span style={{ color: 'var(--color-ink-3)', fontSize: 11.5 }}>
-            {design.section_name} · {design.b_mm.toFixed(0)}×{design.h_mm.toFixed(0)} · H {design.height_mm.toFixed(0)} mm
+            C-{design.b_mm.toFixed(0)}×{design.h_mm.toFixed(0)} · H = {design.height_mm.toFixed(0)} mm
           </span>
           {design.member_ids.length > 0 && (
             <span style={{ color: 'var(--color-ink-4)', fontSize: 11 }} className="mono">
@@ -144,128 +165,123 @@ export default async function ColumnDesignPage({
           code_standard={project.code_standard}
         />
 
-        {/* STEP 2 — Reinforcement */}
-        <div className="card">
+        {/* STEP 2 — Reinforcement Design */}
+        <div className="card" data-step="2-reinforcement">
           <div className="card-h">
             <span className="num-badge">2</span>
             <span className="label">Reinforcement Design</span>
             <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-              longitudinal bars · ties · spacing
+              longitudinal pattern is full-height · ties zoned per {code.code.replace(/_/g, ' ')}
             </span>
           </div>
-          <div className="card-b" style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <ColumnCrossSection
-                b_mm={design.b_mm}
-                h_mm={design.h_mm}
-                clear_cover_mm={design.clear_cover_mm}
-                bar_dia_mm={rebar?.bar_dia_mm ?? 20}
-                bar_count={rebar?.bar_count ?? 4}
-                tie_dia_mm={rebar?.tie_dia_mm ?? 10}
-              />
-            </div>
-            <div>
-              <ColumnRebarEditor
-                projectId={projectId}
-                columnDesignId={columnId}
-                initial={{
-                  bar_dia_mm: rebar?.bar_dia_mm ?? 20,
-                  bar_count: rebar?.bar_count ?? 4,
-                  tie_dia_mm: rebar?.tie_dia_mm ?? 10,
-                  tie_spacing_mm: rebar?.tie_spacing_mm ?? 200,
-                  tie_spacing_end_mm: rebar?.tie_spacing_end_mm ?? 100,
-                  tie_end_zone_length_mm: rebar?.tie_end_zone_length_mm ?? 500,
-                }}
-                initialInteraction={checks?.interaction_ratio ?? null}
-                initialRho={checks?.rho_percent ?? null}
-              />
-            </div>
-          </div>
+          <ColumnRebarEditor
+            projectId={projectId}
+            columnDesignId={columnId}
+            initial={{
+              bar_dia_mm: barDia,
+              bar_count: barCount,
+              tie_dia_mm: tieDia,
+              tie_spacing_mm: tieMid,
+              tie_spacing_end_mm: tieEnd,
+              tie_end_zone_length_mm: tieEndZone,
+            }}
+            initialInteraction={checks?.interaction_ratio ?? null}
+            initialRho={checks?.rho_percent ?? null}
+            b_mm={design.b_mm}
+            h_mm={design.h_mm}
+            clear_cover_mm={design.clear_cover_mm}
+            fc_mpa={design.fc_mpa}
+            fy_mpa={design.fy_mpa}
+            code_standard={project.code_standard}
+          />
         </div>
 
-        {/* STEP 3 — P-M Interaction */}
-        <div className="card">
+        {/* STEP 3 — Design Forces (P-M + Biaxial) */}
+        <div className="card" data-step="3-forces">
           <div className="card-h">
             <span className="num-badge">3</span>
-            <span className="label">P-M Interaction</span>
-            <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-              strain-compatibility sweep · governing combo plotted
-            </span>
+            <span className="label">Design Forces · STAAD Envelope</span>
+            <div className="right">
+              <span className="tag">Pu,max {Pu.toFixed(0)}</span>
+              <span className="tag">Mux {Mux.toFixed(1)}</span>
+              <span className="tag">Muy {Muy.toFixed(1)}</span>
+              <span className="tag">V {Vu.toFixed(1)}</span>
+            </div>
           </div>
-          <div className="card-b" style={{ display: 'flex', justifyContent: 'center' }}>
+          <div className="card-b" style={{ padding: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <PmDiagram
-              curve={curve.map((p) => ({
+              curve={curve.map(p => ({
                 phi_Pn_kN: p.phi_Pn_kN,
                 phi_Mn_kNm: p.phi_Mn_kNm,
                 eps_t: p.eps_t,
               }))}
-              Pu_kN={checks?.pu_kn ?? 0}
-              Mu_kNm={checks?.mu_major_knm ?? 0}
+              Pu_kN={Pu}
+              Mu_kNm={Mux}
+            />
+            <BiaxialSurface
+              phiPnMax={phiPnMax}
+              phiMn={phiMn}
+              Pu={Pu}
+              Mux={Mux}
+              Muy={Muy}
             />
           </div>
         </div>
 
-        {/* STEP 4 — Checks */}
+        {/* STEP 4 — Elevation / Tie Layout */}
         <div className="card">
           <div className="card-h">
             <span className="num-badge">4</span>
-            <span className="label">Check Results</span>
+            <span className="label">Elevation · Tie Layout</span>
             <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-              ACI 318-19 / NSCP 2015 code checks
+              confined zones at top &amp; bottom · {tieEnd}/{tieMid} mm
             </span>
           </div>
-          <div className="card-b">
-            {checks ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
-                <CheckSection title="Governing forces">
-                  <CheckRow k="Pu" v={`${checks.pu_kn.toFixed(1)} kN`} />
-                  <CheckRow k="Mu major" v={`${checks.mu_major_knm.toFixed(1)} kN·m`} />
-                  <CheckRow k="combo" v={checks.governing_combo?.toString() ?? '—'} />
-                </CheckSection>
-                <CheckSection title="Interaction">
-                  <CheckRow k="ratio" v={`${(checks.interaction_ratio * 100).toFixed(0)}%`} ok={checks.interaction_ratio <= 1} />
-                  <CheckRow k="ρ" v={`${checks.rho_percent.toFixed(2)}%`} ok={checks.rho_min_ok && checks.rho_max_ok} />
-                </CheckSection>
-                <CheckSection title="Shear">
-                  <CheckRow k="φVn ≥ Vu" v={`${checks.phi_vn_kn.toFixed(1)} ≥ ${checks.vu_kn.toFixed(1)} kN`} ok={checks.shear_status === 'pass'} />
-                </CheckSection>
-                <CheckSection title="Ties &amp; slenderness">
-                  <CheckRow k="klu/r" v={checks.klu_r.toFixed(1)} />
-                  <CheckRow k="slender" v={checks.slender ? 'yes' : 'no'} ok={!checks.slender} />
-                </CheckSection>
-              </div>
-            ) : (
-              <p style={{ fontSize: 11.5, color: 'var(--color-ink-3)' }}>Run design to populate checks.</p>
-            )}
+          <div className="card-b" style={{ padding: 10, display: 'flex', justifyContent: 'center' }}>
+            <ColumnElevation
+              b={design.b_mm} h={design.h_mm} Hc={design.height_mm}
+              cover={design.clear_cover_mm}
+              barDia={barDia} tieDia={tieDia}
+              sConf={tieEnd} sMid={tieMid} loConf={tieEndZone}
+            />
           </div>
         </div>
+
+        {/* STEP 4b — Development & Splicing */}
+        <ColDevSpliceCard
+          fc={design.fc_mpa} fy={design.fy_mpa}
+          cover={design.clear_cover_mm}
+          b={design.b_mm} h={design.h_mm} Hc={design.height_mm}
+          barDia={barDia} tieDia={tieDia}
+          nLong={nLong}
+          code_standard={project.code_standard}
+        />
+
+        {/* STEP 5 — Calculation Breakdown */}
+        <ColCalcBreakdownCard
+          b={design.b_mm} h={design.h_mm} cover={design.clear_cover_mm}
+          fc={design.fc_mpa} fy={design.fy_mpa} Hc={design.height_mm}
+          barDia={barDia} tieDia={tieDia}
+          nLong={nLong} AsLong={AsLong} Ag={Ag} rhoG={rhoG}
+          sConf={tieEnd} sMid={tieMid} loConf={tieEndZone}
+          classCol="Tied" bracedFrame={true}
+          PuMax={Pu} Mux={Mux} Muy={Muy} Vu={Vu} phiMn={phiMn}
+          dEff={dEff}
+          code_standard={project.code_standard}
+        />
+
+        {/* STEP 6 — Material Take-Off */}
+        <ColRebarMTO
+          colId={design.label}
+          b={design.b_mm} h={design.h_mm} Hc={design.height_mm}
+          cover={design.clear_cover_mm}
+          barDia={barDia} nLong={nLong}
+          tieDia={tieDia} tiePattern="perim+x"
+          sConf={tieEnd} sMid={tieMid} loConf={tieEndZone}
+          fc={design.fc_mpa} fy={design.fy_mpa}
+          code_standard={project.code_standard}
+        />
       </div>
     </DesignErrorBoundary>
-  )
-}
-
-function CheckSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="sub-label" style={{ marginBottom: 4 }}>{title}</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>{children}</div>
-    </div>
-  )
-}
-
-function CheckRow({ k, v, ok }: { k: string; v: string; ok?: boolean }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11.5, padding: '2px 0' }}>
-      <span style={{ color: 'var(--color-ink-3)' }}>{k}</span>
-      <span
-        className="mono"
-        style={{
-          color: ok === undefined ? 'var(--color-ink)' : ok ? 'var(--color-pass)' : 'var(--color-fail)',
-          fontWeight: ok === false ? 600 : 400,
-        }}
-      >
-        {v} {ok === false ? '✗' : ok ? '✓' : ''}
-      </span>
-    </div>
   )
 }
