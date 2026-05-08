@@ -41,10 +41,12 @@ export function BasicLoadsPage({
   const [importance, setImportance] = useState(1.0)
   const [rFactor, setRFactor] = useState(8.5)
   const [frameType, setFrameType] = useState('SMRF')
-  const [includeDL, setIncludeDL] = useState(true)
-  const [includeLL, setIncludeLL] = useState(false)
-  const [llFactor, setLlFactor] = useState(0.25)
   const [includeEQxz, setIncludeEQxz] = useState(false)
+  const [massRefs, setMassRefs] = useState<Record<string, { on: boolean; factor: number }>>({
+    DL: { on: true, factor: 1.0 },
+    LL: { on: false, factor: 0.25 },
+    LR: { on: false, factor: 0.0 },
+  })
   const [windSpeed, setWindSpeed] = useState(200)
   const [windExposure, setWindExposure] = useState('B')
 
@@ -63,9 +65,11 @@ export function BasicLoadsPage({
   const wxStart = dlCase + 3
 
   const SOIL_MAP: Record<string, number> = { SA: 1, SB: 2, SC: 3, SD: 4, SE: 5, SF: 5 }
+  const massCaseMap: Record<string, number> = { DL: dlCase, LL: llCase, LR: lrCase }
   const refLoads: { caseNumber: number; factor: number }[] = []
-  if (includeDL) refLoads.push({ caseNumber: dlCase, factor: 1.0 })
-  if (includeLL) refLoads.push({ caseNumber: llCase, factor: llFactor })
+  for (const [key, ref] of Object.entries(massRefs)) {
+    if (ref.on && massCaseMap[key]) refLoads.push({ caseNumber: massCaseMap[key], factor: ref.factor })
+  }
 
   const isNSCP = code.startsWith('NSCP')
   const seismicDef: SeismicDefinition = {
@@ -213,27 +217,24 @@ export function BasicLoadsPage({
               </div>
               <div className="sub-label" style={{ marginBottom: 6 }}>Seismic Mass (W) — REFERENCE LOAD</div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="checkbox" checked={includeDL} onChange={e => setIncludeDL(e.target.checked)} />
-                  DL (Case {dlCase}) × 1.0
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="checkbox" checked={includeLL} onChange={e => setIncludeLL(e.target.checked)} />
-                  LL (Case {llCase}) ×
-                </label>
-                {includeLL && (
-                  <input
-                    className="input"
-                    type="number"
-                    step={0.05}
-                    value={llFactor}
-                    onChange={e => setLlFactor(Number(e.target.value))}
-                    style={{ width: 50, height: 20, fontSize: 11 }}
-                  />
-                )}
-                <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>
-                  NSCP §208.5.1.1 — warehouse/storage: include 25% LL
-                </span>
+                {Object.entries(massRefs).map(([key, ref]) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={ref.on}
+                      onChange={e => setMassRefs(prev => ({ ...prev, [key]: { ...prev[key], on: e.target.checked } }))}
+                    />
+                    {key} (Case {massCaseMap[key]}) ×
+                    <input
+                      className="input"
+                      type="number"
+                      step={0.05}
+                      value={ref.factor}
+                      onChange={e => setMassRefs(prev => ({ ...prev, [key]: { ...prev[key], factor: Number(e.target.value) } }))}
+                      style={{ width: 45, height: 18, fontSize: 10 }}
+                    />
+                  </label>
+                ))}
               </div>
             </div>
           </div>
