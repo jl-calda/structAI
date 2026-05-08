@@ -3,6 +3,7 @@
  *
  * Sections (numbered):
  *   1. Member Properties (Identity / Geometry / Materials / Supports)
+ *   1b. Member Definition & Loads (STAAD member sets + manual input)
  *   2. Reinforcement Design (Start/Mid/End tabs, cross-section, rebar editor)
  *   3. Design Forces (stacked moment + shear envelopes)
  *   4. Elevation (with bent-up truss bars + stirrup zones)
@@ -13,6 +14,7 @@ import { notFound } from 'next/navigation'
 
 import { BeamDesignClient } from '@/components/beams/BeamDesignClient'
 import { BeamPropertiesCard } from '@/components/beams/BeamPropertiesCard'
+import { BeamMemberLoadsCard } from '@/components/beams/MemberLoadsCard'
 import { StackedEnvelopes } from '@/components/beams/StackedEnvelopes'
 import { RunDesignButton } from '@/components/beams/RunDesignButton'
 import { DesignErrorBoundary } from '@/components/ui/DesignErrorBoundary'
@@ -26,7 +28,7 @@ import {
   getBeamStitchedDiagram,
 } from '@/lib/data/beams'
 import { getProject } from '@/lib/data/projects'
-import { getLatestSync } from '@/lib/data/staad'
+import { getLatestSync, listMembers } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,10 +38,11 @@ export default async function BeamDesignPage({
   params: Promise<{ id: string; beamId: string }>
 }) {
   const { id: projectId, beamId } = await params
-  const [result, project, latest] = await Promise.all([
+  const [result, project, latest, allMembers] = await Promise.all([
     getBeamDesign(beamId),
     getProject(projectId),
     getLatestSync(projectId),
+    listMembers(projectId),
   ])
   if (!result || !project) notFound()
 
@@ -125,6 +128,19 @@ export default async function BeamDesignPage({
           }}
           staadRef={design.member_ids.length > 0 ? design.member_ids.join(' / ') : undefined}
           code_standard={project.code_standard}
+        />
+
+        {/* STEP 1b — Member Definition & Loads */}
+        <BeamMemberLoadsCard
+          projectId={projectId}
+          initialMemberIds={design.member_ids}
+          allMembers={allMembers.map(m => ({
+            member_id: m.member_id,
+            section_name: m.section_name,
+            length_mm: m.length_mm,
+            member_type: m.member_type,
+          }))}
+          designLabel={design.label}
         />
 
         {/* STEP 3 — Design Forces */}
