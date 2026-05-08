@@ -41,9 +41,12 @@ export function BasicLoadsPage({
   const [importance, setImportance] = useState(1.0)
   const [rFactor, setRFactor] = useState(8.5)
   const [frameType, setFrameType] = useState('SMRF')
-  const [includeDL, setIncludeDL] = useState(true)
-  const [includeLL, setIncludeLL] = useState(false)
-  const [llFactor, setLlFactor] = useState(0.25)
+  const [includeEQxz, setIncludeEQxz] = useState(false)
+  const [massRefs, setMassRefs] = useState<Record<string, { on: boolean; factor: number }>>({
+    DL: { on: true, factor: 1.0 },
+    LL: { on: false, factor: 0.25 },
+    LR: { on: false, factor: 0.0 },
+  })
   const [windSpeed, setWindSpeed] = useState(200)
   const [windExposure, setWindExposure] = useState('B')
 
@@ -53,10 +56,20 @@ export function BasicLoadsPage({
   const Cs = (Cv / rFactor).toFixed(4)
   const CsMin = (0.11 * Ca * importance).toFixed(4)
 
+  const eqxCase = 1
+  const eqzCase = 2
+  const eqxzCase = includeEQxz ? 3 : 0
+  const dlCase = includeEQxz ? 4 : 3
+  const llCase = dlCase + 1
+  const lrCase = dlCase + 2
+  const wxStart = dlCase + 3
+
   const SOIL_MAP: Record<string, number> = { SA: 1, SB: 2, SC: 3, SD: 4, SE: 5, SF: 5 }
+  const massCaseMap: Record<string, number> = { DL: dlCase, LL: llCase, LR: lrCase }
   const refLoads: { caseNumber: number; factor: number }[] = []
-  if (includeDL) refLoads.push({ caseNumber: 3, factor: 1.0 })
-  if (includeLL) refLoads.push({ caseNumber: 4, factor: llFactor })
+  for (const [key, ref] of Object.entries(massRefs)) {
+    if (ref.on && massCaseMap[key]) refLoads.push({ caseNumber: massCaseMap[key], factor: ref.factor })
+  }
 
   const isNSCP = code.startsWith('NSCP')
   const seismicDef: SeismicDefinition = {
@@ -68,24 +81,35 @@ export function BasicLoadsPage({
     soilType: SOIL_MAP[soilProfile] ?? 4,
     referenceLoads: refLoads,
   }
-  const allCode = [
-    generateFullSeismicBlock(seismicDef, 1, 2),
+  const codeLines = [
+    generateFullSeismicBlock(seismicDef, eqxCase, eqzCase),
+  ]
+  if (includeEQxz) {
+    codeLines.push(
+      '',
+      `LOAD ${eqxzCase} LOADTYPE None TITLE EQxz`,
+      'REPEAT LOAD',
+      `${eqxCase} 1.0 ${eqzCase} 0.3`,
+    )
+  }
+  codeLines.push(
     '',
-    `LOAD 3 LOADTYPE Dead TITLE DL`,
+    `LOAD ${dlCase} LOADTYPE Dead TITLE DL`,
     `SELFWEIGHT Y -${swFactor}`,
     '',
-    `LOAD 4 LOADTYPE Live TITLE LL`,
+    `LOAD ${llCase} LOADTYPE Live TITLE LL`,
     '',
-    `LOAD 5 LOADTYPE Roof Live TITLE LR`,
+    `LOAD ${lrCase} LOADTYPE Roof Live TITLE LR`,
     '',
-    `LOAD 6 LOADTYPE Wind TITLE Wx_1`,
+    `LOAD ${wxStart} LOADTYPE Wind TITLE Wx_1`,
     '',
-    `LOAD 7 LOADTYPE Wind TITLE Wx_2`,
+    `LOAD ${wxStart + 1} LOADTYPE Wind TITLE Wx_2`,
     '',
-    `LOAD 8 LOADTYPE Wind TITLE Wz_1`,
+    `LOAD ${wxStart + 2} LOADTYPE Wind TITLE Wz_1`,
     '',
-    `LOAD 9 LOADTYPE Wind TITLE Wz_2`,
-  ].join('\n')
+    `LOAD ${wxStart + 3} LOADTYPE Wind TITLE Wz_2`,
+  )
+  const allCode = codeLines.join('\n')
 
   useEffect(() => { setStaadCode(allCode); return () => { setStaadCode('') } }, [allCode])
 
@@ -121,7 +145,7 @@ export function BasicLoadsPage({
             <EmbeddedAssemblyPicker
               codeStandard={code}
               members={members}
-              caseNumber={3}
+              caseNumber={dlCase}
               caseTitle="SDL"
               loadType="dead"
               allowedCategories={['wall', 'slab', 'floor_finish', 'partition', 'facade']}
@@ -137,7 +161,7 @@ export function BasicLoadsPage({
             <EmbeddedAssemblyPicker
               codeStandard={code}
               members={members}
-              caseNumber={4}
+              caseNumber={llCase}
               caseTitle="LL"
               loadType="live"
               allowedCategories={['live']}
@@ -153,7 +177,7 @@ export function BasicLoadsPage({
             <EmbeddedAssemblyPicker
               codeStandard={code}
               members={members}
-              caseNumber={5}
+              caseNumber={lrCase}
               caseTitle="LR"
               loadType="live"
               allowedCategories={['live', 'stair']}
@@ -181,29 +205,36 @@ export function BasicLoadsPage({
               </PropGroup>
             </div>
             <div style={{ borderTop: '1px solid var(--color-line-2)', padding: '8px 10px' }}>
+              <div className="sub-label" style={{ marginBottom: 6 }}>Seismic Load Cases</div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11, marginBottom: 8 }}>
+                <span className="mono" style={{ color: 'var(--color-ink-3)' }}>LOAD {eqxCase} EQx</span>
+                <span className="mono" style={{ color: 'var(--color-ink-3)' }}>LOAD {eqzCase} EQz</span>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <input type="checkbox" checked={includeEQxz} onChange={e => setIncludeEQxz(e.target.checked)} />
+                  LOAD {eqxzCase || 3} EQxz
+                  <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>100% + 30% rule · §208.8.1</span>
+                </label>
+              </div>
               <div className="sub-label" style={{ marginBottom: 6 }}>Seismic Mass (W) — REFERENCE LOAD</div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="checkbox" checked={includeDL} onChange={e => setIncludeDL(e.target.checked)} />
-                  DL (Case 3) × 1.0
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="checkbox" checked={includeLL} onChange={e => setIncludeLL(e.target.checked)} />
-                  LL (Case 4) ×
-                </label>
-                {includeLL && (
-                  <input
-                    className="input"
-                    type="number"
-                    step={0.05}
-                    value={llFactor}
-                    onChange={e => setLlFactor(Number(e.target.value))}
-                    style={{ width: 50, height: 20, fontSize: 11 }}
-                  />
-                )}
-                <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>
-                  NSCP §208.5.1.1 — warehouse/storage: include 25% LL
-                </span>
+                {Object.entries(massRefs).map(([key, ref]) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <input
+                      type="checkbox"
+                      checked={ref.on}
+                      onChange={e => setMassRefs(prev => ({ ...prev, [key]: { ...prev[key], on: e.target.checked } }))}
+                    />
+                    {key} (Case {massCaseMap[key]}) ×
+                    <input
+                      className="input"
+                      type="number"
+                      step={0.05}
+                      value={ref.factor}
+                      onChange={e => setMassRefs(prev => ({ ...prev, [key]: { ...prev[key], factor: Number(e.target.value) } }))}
+                      style={{ width: 45, height: 18, fontSize: 10 }}
+                    />
+                  </label>
+                ))}
               </div>
             </div>
           </div>
