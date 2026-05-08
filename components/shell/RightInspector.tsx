@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { Icon } from '@/components/ui/Icon'
 import { useResizable } from '@/lib/hooks/useResizable'
+import { useStaadCode } from '@/lib/stores/staad-code-store'
 
 export type InspectorData = {
   title: string
@@ -61,6 +62,7 @@ function RightInspectorView({ data, loading }: { data?: InspectorData; loading?:
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'inspect' | 'staad' | 'checks'>('inspect')
   const [w, startDrag] = useResizable(300, 220, 520, 'right', 'structai.right.w')
+  const storeCode = useStaadCode()
 
   if (collapsed) {
     return (
@@ -94,22 +96,28 @@ function RightInspectorView({ data, loading }: { data?: InspectorData; loading?:
         </div>
       </div>
       <div className="insp-content">
-        {loading && !data ? (
+        {loading && !data && !storeCode ? (
           <div className="insp-section">
             <p style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>Loading…</p>
           </div>
-        ) : !data ? (
+        ) : !data && !storeCode ? (
           <div className="insp-section">
             <p style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>
               Select a beam, column, slab or footing to see its details here.
             </p>
           </div>
         ) : tab === 'inspect' ? (
-          <InspectTab data={data} />
+          data ? <InspectTab data={data} /> : (
+            <div className="insp-section">
+              <p style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>
+                Configure load parameters on the left. STAAD code is in the .STD Code tab.
+              </p>
+            </div>
+          )
         ) : tab === 'staad' ? (
-          <StaadCodeTab code={data.staadCode ?? ''} />
+          <StaadCodeTab code={data?.staadCode ?? storeCode} />
         ) : (
-          <ChecksTab checks={data.checks ?? []} stirrupZones={data.stirrupZones ?? []} />
+          <ChecksTab checks={data?.checks ?? []} stirrupZones={data?.stirrupZones ?? []} />
         )}
       </div>
     </aside>
@@ -181,7 +189,14 @@ function StaadCodeTab({ code }: { code: string }) {
       <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', alignItems: 'center', gap: 6 }}>
         <Icon name="code" size={12} />
         <span style={{ fontSize: 11, color: 'var(--color-ink-3)' }}>STAAD source</span>
-        <span className="pill" style={{ marginLeft: 'auto' }}><span className="led" /> in sync</span>
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => { navigator.clipboard.writeText(code).catch(() => {}) }}
+          style={{ marginLeft: 'auto' }}
+        >
+          <Icon name="download" size={10} /> Copy All
+        </button>
       </div>
       <pre
         style={{
@@ -199,7 +214,7 @@ function StaadCodeTab({ code }: { code: string }) {
         {code.split('\n').map((line, i) => {
           const isComment = line.trim().startsWith('*')
           const head = line.trim().split(/\s+/)[0] ?? ''
-          const isKw = /^(MEMBER|LOAD|START|END|PROPERTY|CONSTANTS|UNI|PRIS|CODE|FC|FY|CLEAR|TRACK|DESIGN|PRINT|PERFORM|CONCRETE|MATERIAL|COMB|FYMAIN)$/.test(head)
+          const isKw = /^(MEMBER|LOAD|START|END|PROPERTY|CONSTANTS|UNI|PRIS|CODE|FC|FY|CLEAR|TRACK|DESIGN|PRINT|PERFORM|CONCRETE|MATERIAL|COMB|FYMAIN|DEFINE|ZONE|STYP|REFERENCE|SELFWEIGHT|LOADTYPE|UBC|IBC|FLOOR)$/.test(head)
           return (
             <div key={i} style={{ display: 'flex' }}>
               <span style={{ display: 'inline-block', width: 24, color: 'var(--color-ink-5)', textAlign: 'right', paddingRight: 8, userSelect: 'none' }}>

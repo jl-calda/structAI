@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import {
   PropCalcRow,
@@ -10,8 +10,8 @@ import {
   PropStaticRow,
 } from '@/components/ui/PropRow'
 import { EmbeddedAssemblyPicker } from './EmbeddedAssemblyPicker'
-import { Icon } from '@/components/ui/Icon'
 import { generateFullSeismicBlock, type SeismicDefinition } from '@/lib/staad/syntax'
+import { setStaadCode } from '@/lib/stores/staad-code-store'
 import type { CodeStandard } from '@/lib/supabase/types'
 
 type MemberLite = { member_id: number; section_name: string; length_mm: number; member_type: string }
@@ -87,6 +87,8 @@ export function BasicLoadsPage({
     `LOAD 9 LOADTYPE Wind TITLE Wz_2`,
   ].join('\n')
 
+  useEffect(() => { setStaadCode(allCode); return () => { setStaadCode('') } }, [allCode])
+
   return (
     <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div className="row" style={{ gap: 10 }}>
@@ -95,10 +97,6 @@ export function BasicLoadsPage({
           {codeRef} · define each load type with its LRFD factor
         </span>
       </div>
-
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(340px,400px)] gap-3">
-        {/* Left column — load definition cards */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
 
           {/* Card 1 — Self Weight */}
           <div className="card">
@@ -228,38 +226,6 @@ export function BasicLoadsPage({
               </PropGroup>
             </div>
           </div>
-        </div>
-
-        {/* Right column — STAAD code panel */}
-        <div style={{ position: 'sticky', top: 12, alignSelf: 'start' }}>
-          <div className="card">
-            <div className="card-h" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <span className="label">STAAD Code</span>
-                <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 10.5, marginLeft: 8 }}>Basic Load Cases</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => { navigator.clipboard.writeText(allCode).catch(() => {}) }}
-                className="btn sm"
-              >
-                <Icon name="download" size={11} /> Copy All
-              </button>
-            </div>
-            <pre
-              style={{
-                margin: 0, padding: '10px 12px',
-                fontFamily: 'var(--font-mono)', fontSize: 10.5, lineHeight: 1.5,
-                color: 'var(--color-ink)', background: 'var(--color-panel)',
-                borderTop: '1px solid var(--color-line)',
-                whiteSpace: 'pre', overflow: 'auto', maxHeight: 'calc(100vh - 120px)',
-              }}
-            >
-              {allCode}
-            </pre>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
