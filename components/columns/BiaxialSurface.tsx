@@ -1,7 +1,12 @@
+'use client'
+
+import { useCallback, useRef, useState } from 'react'
+
 /**
- * 3D axonometric P-Mx-My interaction surface (Bresler load contour).
- * Wireframe rings, vertical ribs, highlighted slice at Pu,
- * design point with leader lines to all 3 axes.
+ * Interactive 3D axonometric P-Mx-My interaction surface (Bresler load contour).
+ *
+ * Drag to orbit (yaw + pitch), scroll to zoom, double-click to reset.
+ * Shift+drag to pan. +/- buttons for click-zoom.
  */
 export function BiaxialSurface({
   phiPnMax,
@@ -20,24 +25,74 @@ export function BiaxialSurface({
   width?: number
   height?: number
 }) {
+  const [yaw, setYaw] = useState(26)
+  const [pitch, setPitch] = useState(26)
+  const [zoom, setZoom] = useState(1.0)
+  const [panX, setPanX] = useState(0)
+  const [panY, setPanY] = useState(0)
+
+  const svgRef = useRef<SVGSVGElement>(null)
+  const dragging = useRef(false)
+  const shiftDrag = useRef(false)
+  const lastPos = useRef({ x: 0, y: 0 })
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    dragging.current = true
+    shiftDrag.current = e.shiftKey
+    lastPos.current = { x: e.clientX, y: e.clientY }
+    svgRef.current?.setPointerCapture(e.pointerId)
+  }, [])
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging.current) return
+    const dx = e.clientX - lastPos.current.x
+    const dy = e.clientY - lastPos.current.y
+    lastPos.current = { x: e.clientX, y: e.clientY }
+    if (shiftDrag.current) {
+      setPanX(p => p + dx)
+      setPanY(p => p + dy)
+    } else {
+      setYaw(y => Math.max(5, Math.min(80, y + dx * 0.4)))
+      setPitch(p => Math.max(5, Math.min(60, p - dy * 0.4)))
+    }
+  }, [])
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    dragging.current = false
+    svgRef.current?.releasePointerCapture(e.pointerId)
+  }, [])
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault()
+    setZoom(z => Math.max(0.4, Math.min(4, z * (1 - e.deltaY * 0.001))))
+  }, [])
+
+  const resetView = useCallback(() => {
+    setYaw(26); setPitch(26); setZoom(1.0); setPanX(0); setPanY(0)
+  }, [])
+
   const ratio = Math.pow(Mux / phiMn, 1.5) + Math.pow(Muy / phiMn, 1.5)
   const ok = ratio <= 1.0
 
-  const ox = 168, oy = 196
-  const angX = (26 * Math.PI) / 180
-  const angY = (26 * Math.PI) / 180
+  const cx = width / 2 + panX
+  const cy = height * 0.75 + panY
+  const angX = (yaw * Math.PI) / 180
+  const angY = (yaw * Math.PI) / 180
+  const angPitch = (pitch * Math.PI) / 180
 
   const Pcap = phiPnMax
   const Ptens = -phiPnMax * 0.20
   const Pb = phiPnMax * 0.40
   const Mmax = phiMn
 
-  const sM = 78 / Mmax
-  const sP = 150 / (Pcap - Ptens)
+  const baseSM = 78 / Mmax
+  const baseSP = 150 / (Pcap - Ptens)
+  const sM = baseSM * zoom
+  const sP = baseSP * zoom
 
   const proj = (mx: number, my: number, p: number): [number, number] => {
-    const X = ox + my * Math.cos(angY) * sM - mx * Math.cos(angX) * sM
-    const Y = oy - my * Math.sin(angY) * sM - mx * Math.sin(angX) * sM - (p - Ptens) * sP
+    const X = cx + my * Math.cos(angY) * sM - mx * Math.cos(angX) * sM
+    const Y = cy - my * Math.sin(angPitch) * sM - mx * Math.sin(angPitch) * sM - (p - Ptens) * sP
     return [X, Y]
   }
 
@@ -112,7 +167,7 @@ export function BiaxialSurface({
   const ptColor = ok ? 'var(--color-pass, #1F6B3A)' : 'var(--color-fail, #A12424)'
 
   return (
-    <div style={{ border: '1px solid var(--color-line-2)', borderRadius: 4, background: '#fff' }}>
+    <div style={{ border: '1px solid var(--color-line-2)', borderRadius: 4, background: '#fff', position: 'relative' }}>
       <div style={{
         padding: '4px 10px', borderBottom: '1px solid var(--color-line-2)',
         fontSize: 10, fontWeight: 600, color: 'var(--color-ink-2)',
@@ -124,7 +179,27 @@ export function BiaxialSurface({
           (Mux/φMn)^1.5 + (Muy/φMn)^1.5 = {ratio.toFixed(2)} {ok ? '✓' : '✗'}
         </span>
       </div>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+
+      {/* Zoom / reset controls */}
+      <div style={{
+        position: 'absolute', top: 34, right: 6, display: 'flex', flexDirection: 'column', gap: 2, zIndex: 2,
+      }}>
+        <button type="button" onClick={() => setZoom(z => Math.min(4, z * 1.25))}
+          style={{ width: 20, height: 20, border: '1px solid var(--color-line-3)', borderRadius: 3, background: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink-2)' }}>+</button>
+        <button type="button" onClick={() => setZoom(z => Math.max(0.4, z / 1.25))}
+          style={{ width: 20, height: 20, border: '1px solid var(--color-line-3)', borderRadius: 3, background: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-ink-2)' }}>−</button>
+      </div>
+
+      <svg
+        ref={svgRef}
+        width={width} height={height} viewBox={`0 0 ${width} ${height}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onWheel={onWheel}
+        onDoubleClick={resetView}
+        style={{ cursor: dragging.current ? 'grabbing' : 'grab', touchAction: 'none' }}
+      >
         <defs>
           <linearGradient id="biaxFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#E8F0FA" stopOpacity={0.55} />
@@ -218,7 +293,40 @@ export function BiaxialSurface({
           <line x1={0} y1={20} x2={14} y2={20} stroke="#7B8CA3" strokeWidth={0.7} />
           <text x={18} y={23} fontFamily="var(--font-sans)" fontSize={9} fill="#6B7079">interaction surface</text>
         </g>
+
+        {/* View readout */}
+        <text x={width - 6} y={height - 6} textAnchor="end" fontFamily="var(--font-mono)" fontSize={8} fill="#C0C3C9">
+          yaw {yaw.toFixed(0)}° pitch {pitch.toFixed(0)}° ×{zoom.toFixed(1)}
+        </text>
+
+        {/* Axis indicator */}
+        <g transform={`translate(${width - 40}, ${height - 40})`}>
+          {(() => {
+            const len = 16
+            const ax = [-len * Math.cos(angX), len * Math.sin(angPitch)]
+            const ay = [len * Math.cos(angY), len * Math.sin(angPitch)]
+            const az = [0, -len]
+            return (
+              <>
+                <line x1={0} y1={0} x2={ax[0]} y2={ax[1]} stroke="#A02020" strokeWidth={1} />
+                <text x={ax[0] - 4} y={ax[1] + 8} fontSize={7} fill="#A02020" fontFamily="var(--font-mono)">x</text>
+                <line x1={0} y1={0} x2={ay[0]} y2={ay[1]} stroke="#1755A0" strokeWidth={1} />
+                <text x={ay[0] + 3} y={ay[1] + 8} fontSize={7} fill="#1755A0" fontFamily="var(--font-mono)">y</text>
+                <line x1={0} y1={0} x2={az[0]} y2={az[1]} stroke="#1F6B3A" strokeWidth={1} />
+                <text x={az[0] + 3} y={az[1] - 2} fontSize={7} fill="#1F6B3A" fontFamily="var(--font-mono)">P</text>
+              </>
+            )
+          })()}
+        </g>
       </svg>
+
+      {/* Hint */}
+      <div style={{ padding: '2px 10px 4px', fontSize: 9, color: 'var(--color-ink-5)', display: 'flex', gap: 12 }}>
+        <span>drag to orbit</span>
+        <span>shift+drag to pan</span>
+        <span>scroll to zoom</span>
+        <span>double-click to reset</span>
+      </div>
     </div>
   )
 }
