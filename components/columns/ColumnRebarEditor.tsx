@@ -79,7 +79,8 @@ export function ColumnRebarEditor({
 
   const phi = code.phi_axial(0, tiePattern === 'spiral' ? 'spiral' : 'tied')
   const factor = code.Pn_max_factor(tiePattern === 'spiral' ? 'spiral' : 'tied')
-  const Po = 0.85 * fc_mpa * (Ag - AsLong) + fy_mpa * AsLong
+  const alpha1 = code.stress_block_stress_factor(fc_mpa)
+  const Po = alpha1 * code.fcd(fc_mpa) * (Ag - AsLong) + code.fyd(fy_mpa) * AsLong
   const phiPnMax = factor * phi * Po / 1000
 
   const [result, setResult] = useState(() => {

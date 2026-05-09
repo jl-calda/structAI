@@ -39,10 +39,10 @@ export function ColRebarMTO({
   const code = getCode(code_standard)
   const [activeMark, setActiveMark] = useState(0)
 
-  const sqrtFc = Math.sqrt(fc)
-  const lap_comp_base = fy <= 420 ? 0.071 * fy * barDia : (0.13 * fy - 24) * barDia
-  const ls = Math.max(300, Math.ceil(lap_comp_base * 0.83 / 10) * 10)
-  const ldc = Math.max(200, Math.ceil(Math.max(0.24 * fy / sqrtFc * barDia, 0.043 * fy * barDia) / 10) * 10)
+  // Use code provider for development/splice lengths
+  const ldTension = code.Ld(barDia, fc, fy, false, cover + tieDia)
+  const ls = Math.max(300, Math.ceil(code.lap_splice(ldTension, 'B') / 10) * 10)
+  const ldc = Math.max(200, Math.ceil(ldTension * 0.6 / 10) * 10)
   const offsetBend = Math.round(ls / 6)
 
   const hook135 = Math.max(6 * tieDia, 75)

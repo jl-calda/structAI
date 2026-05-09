@@ -78,7 +78,8 @@ export default async function ColumnDesignPage({
 
   const phi = code.phi_axial(0, 'tied')
   const factor = code.Pn_max_factor('tied')
-  const Po = 0.85 * design.fc_mpa * (Ag - AsLong) + design.fy_mpa * AsLong
+  const alpha1 = code.stress_block_stress_factor(design.fc_mpa)
+  const Po = alpha1 * code.fcd(design.fc_mpa) * (Ag - AsLong) + code.fyd(design.fy_mpa) * AsLong
   const phiPnMax = factor * phi * Po / 1000
 
   const Pu = checks?.pu_kn ?? 0
