@@ -6,11 +6,13 @@ import { Icon } from '@/components/ui/Icon'
 /**
  * Step 1b — Member Definition & Loads for columns.
  *
- * A column design (e.g. C-1) may exist as multiple physical columns in STAAD.
- * Each "instance" is a STAAD member ID. Forces (Pu, Mu, Vu) are extracted
- * per-instance from STAAD envelope; the governing values drive the design.
+ * Supports three data sources:
+ *   1. Cached DB — reads from staad_envelope via /api/design/member-forces
+ *   2. Live OpenSTAAD — queries running STAAD via bridge /query/* endpoints
+ *   3. Manual — user enters Pu, Mu, Vu directly
  *
- * Also supports manual load input when STAAD data is unavailable.
+ * Multiple instances: C-1 may represent several physical columns in STAAD.
+ * The governing forces across all instances drive the design.
  */
 
 type MemberInfo = { member_id: number; section_name: string; length_mm: number; member_type: string }
@@ -39,7 +41,8 @@ export function ColumnMemberLoadsCard({
   allMembers,
   designLabel,
 }: ColumnMemberLoadsCardProps) {
-  const [mode, setMode] = useState<'staad' | 'manual'>(initialMemberIds.length > 0 ? 'staad' : 'manual')
+  const [mode, setMode] = useState<'staad' | 'live' | 'manual'>(initialMemberIds.length > 0 ? 'staad' : 'manual')
+  const [bridgeOnline, setBridgeOnline] = useState<boolean | null>(null)
 
   const [instances, setInstances] = useState<InstanceData[]>(() => {
     if (initialMemberIds.length === 0) return []
@@ -59,11 +62,20 @@ export function ColumnMemberLoadsCard({
   const [manualVu, setManualVu] = useState(0)
   const [manualHeight, setManualHeight] = useState(3000)
 
-  const columnMembers = allMembers.filter(m =>
-    m.member_type === 'column' || m.member_type === 'COLUMN',
-  )
+  const [searchSection, setSearchSection] = useState('')
+  const [searchResults, setSearchResults] = useState<MemberInfo[]>([])
+  const [searching, setSearching] = useState(false)
 
-  const fetchForces = useCallback(async (inst: InstanceData) => {
+  const columnMembers = allMembers.filter(m => m.member_type === 'column' || m.member_type === 'COLUMN')
+
+  useEffect(() => {
+    fetch('/api/bridge/status')
+      .then(r => r.json())
+      .then(d => setBridgeOnline(d.connected === true))
+      .catch(() => setBridgeOnline(false))
+  }, [])
+
+  const fetchForcesCached = useCallback(async (inst: InstanceData) => {
     if (inst.memberIds.length === 0) return
     setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: true } : i))
     try {
@@ -74,11 +86,36 @@ export function ColumnMemberLoadsCard({
         setInstances(prev => prev.map(i => i.id === inst.id ? {
           ...i,
           height_mm: d.totalSpan,
+          forces: { pu: d.envelope.nu_comp_max, mu_major: d.envelope.mpos_max, mu_minor: d.envelope.mpos_minor_max ?? 0, vu: d.envelope.vu_max },
+          loading: false,
+        } : i))
+      } else {
+        setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: false } : i))
+      }
+    } catch {
+      setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: false } : i))
+    }
+  }, [projectId])
+
+  const fetchForcesLive = useCallback(async (inst: InstanceData) => {
+    if (inst.memberIds.length === 0) return
+    setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: true } : i))
+    try {
+      const res = await fetch('/api/bridge/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'forces', project_id: projectId, member_ids: inst.memberIds }),
+      })
+      const json = await res.json()
+      if (json.ok) {
+        setInstances(prev => prev.map(i => i.id === inst.id ? {
+          ...i,
+          height_mm: json.totalSpan,
           forces: {
-            pu: d.envelope.nu_comp_max,
-            mu_major: d.envelope.mpos_max,
-            mu_minor: d.envelope.mpos_minor_max ?? 0,
-            vu: d.envelope.vu_max,
+            pu: json.envelope.nu_comp_max,
+            mu_major: json.envelope.mpos_max,
+            mu_minor: 0,
+            vu: json.envelope.vu_max,
           },
           loading: false,
         } : i))
@@ -89,6 +126,8 @@ export function ColumnMemberLoadsCard({
       setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: false } : i))
     }
   }, [projectId])
+
+  const fetchForces = mode === 'live' ? fetchForcesLive : fetchForcesCached
 
   useEffect(() => {
     for (const inst of instances) {
@@ -118,7 +157,40 @@ export function ColumnMemberLoadsCard({
     setInstances(prev => prev.map(i => i.id === instId ? { ...i, memberIds: ids, forces: null } : i))
   }
 
-  const refreshInstance = (inst: InstanceData) => {
+  const refreshInstance = (inst: InstanceData) => { fetchForces(inst) }
+  const refreshAll = () => { instances.forEach(inst => fetchForces(inst)) }
+
+  const searchSTAAD = async () => {
+    if (!searchSection.trim()) return
+    setSearching(true)
+    try {
+      const res = await fetch('/api/bridge/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'search',
+          project_id: projectId,
+          section_name: searchSection.trim(),
+          member_type: 'COLUMN',
+        }),
+      })
+      const json = await res.json()
+      if (json.ok) setSearchResults(json.members ?? [])
+    } catch { /* bridge offline */ }
+    setSearching(false)
+  }
+
+  const addSearchResultAsInstance = (members: MemberInfo[]) => {
+    const ids = members.map(m => m.member_id)
+    const inst: InstanceData = {
+      id: instanceIdCounter++,
+      label: `${designLabel}-${instances.length + 1}`,
+      memberIds: ids,
+      height_mm: members.reduce((s, m) => s + m.length_mm, 0),
+      forces: null,
+      loading: false,
+    }
+    setInstances(prev => [...prev, inst])
     fetchForces(inst)
   }
 
@@ -138,26 +210,72 @@ export function ColumnMemberLoadsCard({
         <span className="num-badge">1b</span>
         <span className="label">Member Definition &amp; Loads</span>
         <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-          {mode === 'staad' ? `${instances.length} instance${instances.length !== 1 ? 's' : ''} · governing envelope` : 'manual input'}
+          {mode === 'manual' ? 'manual input' : `${instances.length} instance${instances.length !== 1 ? 's' : ''} · ${mode === 'live' ? 'live OpenSTAAD' : 'cached DB'}`}
         </span>
         <div className="right">
+          {bridgeOnline !== null && (
+            <span style={{ fontSize: 9.5, color: bridgeOnline ? 'var(--color-pass)' : 'var(--color-ink-4)', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: bridgeOnline ? 'var(--color-pass)' : 'var(--color-ink-5)' }} />
+              {bridgeOnline ? 'Bridge online' : 'Bridge offline'}
+            </span>
+          )}
           <div style={{ display: 'flex', gap: 0, background: 'var(--color-bg)', borderRadius: 4, padding: 2, border: '1px solid var(--color-line-2)' }}>
-            <button type="button" onClick={() => setMode('staad')} style={{
-              padding: '2px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 3, border: 0, cursor: 'pointer',
-              background: mode === 'staad' ? 'var(--color-ink)' : 'transparent',
-              color: mode === 'staad' ? '#fff' : 'var(--color-ink-3)',
-            }}>STAAD</button>
-            <button type="button" onClick={() => setMode('manual')} style={{
-              padding: '2px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 3, border: 0, cursor: 'pointer',
-              background: mode === 'manual' ? 'var(--color-ink)' : 'transparent',
-              color: mode === 'manual' ? '#fff' : 'var(--color-ink-3)',
-            }}>Manual</button>
+            {['staad', 'live', 'manual'].map(m => (
+              <button key={m} type="button" onClick={() => setMode(m as typeof mode)} style={{
+                padding: '2px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 3, border: 0, cursor: 'pointer',
+                background: mode === m ? 'var(--color-ink)' : 'transparent',
+                color: mode === m ? '#fff' : 'var(--color-ink-3)',
+                opacity: m === 'live' && !bridgeOnline ? 0.4 : 1,
+              }} disabled={m === 'live' && bridgeOnline === false}>
+                {m === 'staad' ? 'Cached' : m === 'live' ? 'Live' : 'Manual'}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
-      {mode === 'staad' ? (
+      {mode === 'manual' ? (
+        <div className="card-b" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+          <ManualField label="Height" unit="mm" value={manualHeight} onChange={setManualHeight} />
+          <ManualField label="Pu (axial)" unit="kN" value={manualPu} onChange={setManualPu} />
+          <ManualField label="Mu,x (major)" unit="kN·m" value={manualMuMajor} onChange={setManualMuMajor} />
+          <ManualField label="Mu,y (minor)" unit="kN·m" value={manualMuMinor} onChange={setManualMuMinor} />
+          <ManualField label="Vu (shear)" unit="kN" value={manualVu} onChange={setManualVu} />
+        </div>
+      ) : (
         <div>
+          {mode === 'live' && (
+            <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)', display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Icon name="search" size={11} />
+              <input className="input" placeholder="Search STAAD by section name (e.g. 400×400)…"
+                value={searchSection} onChange={e => setSearchSection(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && searchSTAAD()}
+                style={{ flex: 1, height: 24, fontSize: 11.5 }} />
+              <button type="button" className="btn sm" onClick={searchSTAAD} disabled={searching}>
+                {searching ? 'Searching…' : 'Search STAAD'}
+              </button>
+              {searchResults.length > 0 && (
+                <>
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--color-ink-3)' }}>{searchResults.length} found</span>
+                  <button type="button" className="btn sm" onClick={() => addSearchResultAsInstance(searchResults)}>
+                    <Icon name="plus" size={9} /> Add all as instance
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {mode === 'live' && searchResults.length > 0 && (
+            <div style={{ padding: '4px 10px 6px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+              {searchResults.slice(0, 30).map(m => (
+                <span key={m.member_id} className="tag" style={{ fontSize: 9, padding: '1px 5px' }}>
+                  <span className="mono">{m.member_id}</span>
+                  <span style={{ color: 'var(--color-ink-4)', fontSize: 8, marginLeft: 3 }}>{m.section_name} · {m.length_mm}mm</span>
+                </span>
+              ))}
+            </div>
+          )}
+
           <table className="t" style={{ fontSize: 11 }}>
             <thead>
               <tr>
@@ -179,17 +297,14 @@ export function ColumnMemberLoadsCard({
                       onChange={e => setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, label: e.target.value } : i))} />
                   </td>
                   <td>
-                    <MemberPicker
-                      available={columnMembers}
-                      selected={inst.memberIds}
-                      onChange={ids => updateMemberIds(inst.id, ids)}
-                    />
+                    <MemberPicker available={columnMembers} selected={inst.memberIds}
+                      onChange={ids => updateMemberIds(inst.id, ids)} />
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
                     <span className="mono">{inst.height_mm > 0 ? inst.height_mm.toFixed(0) : '—'}</span>
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
-                    {inst.loading ? <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>…</span> :
+                    {inst.loading ? <span style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>…</span> :
                       <span className="mono">{inst.forces ? inst.forces.pu.toFixed(1) : '—'}</span>}
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
@@ -222,6 +337,11 @@ export function ColumnMemberLoadsCard({
             <button type="button" className="btn sm" onClick={addInstance}>
               <Icon name="plus" size={10} /> Add instance
             </button>
+            {instances.length > 1 && (
+              <button type="button" className="btn sm ghost" onClick={refreshAll}>
+                <Icon name="sync" size={10} /> Refresh all
+              </button>
+            )}
             <div className="spacer" />
             {instances.length > 0 && (
               <div style={{ display: 'flex', gap: 12, fontSize: 10.5 }}>
@@ -234,43 +354,23 @@ export function ColumnMemberLoadsCard({
             )}
           </div>
         </div>
-      ) : (
-        <div className="card-b" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
-          <ManualField label="Height" unit="mm" value={manualHeight} onChange={setManualHeight} />
-          <ManualField label="Pu (axial)" unit="kN" value={manualPu} onChange={setManualPu} />
-          <ManualField label="Mu,x (major)" unit="kN·m" value={manualMuMajor} onChange={setManualMuMajor} />
-          <ManualField label="Mu,y (minor)" unit="kN·m" value={manualMuMinor} onChange={setManualMuMinor} />
-          <ManualField label="Vu (shear)" unit="kN" value={manualVu} onChange={setManualVu} />
-        </div>
       )}
     </div>
   )
 }
 
-function MemberPicker({
-  available,
-  selected,
-  onChange,
-}: {
-  available: MemberInfo[]
-  selected: number[]
-  onChange: (ids: number[]) => void
+function MemberPicker({ available, selected, onChange }: {
+  available: MemberInfo[]; selected: number[]; onChange: (ids: number[]) => void
 }) {
   const [inputVal, setInputVal] = useState('')
-
-  const removeMember = (id: number) => {
-    onChange(selected.filter(x => x !== id))
-  }
-
+  const removeMember = (id: number) => onChange(selected.filter(x => x !== id))
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const ids = inputVal.split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0)
-      const newIds = [...new Set([...selected, ...ids])]
-      onChange(newIds)
+      onChange([...new Set([...selected, ...ids])])
       setInputVal('')
     }
   }
-
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center' }}>
       {selected.map(id => {
@@ -280,20 +380,13 @@ function MemberPicker({
             <span className="mono">{id}</span>
             {m && <span style={{ color: 'var(--color-ink-4)', fontSize: 8 }}>{m.section_name} · {m.length_mm}mm</span>}
             <button type="button" onClick={() => removeMember(id)}
-              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 10, padding: 0, lineHeight: 1 }}>
-              ×
-            </button>
+              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 10, padding: 0, lineHeight: 1 }}>×</button>
           </span>
         )
       })}
-      <input
-        className="input"
-        placeholder="member IDs…"
-        value={inputVal}
-        onChange={e => setInputVal(e.target.value)}
-        onKeyDown={handleKeyDown}
-        style={{ width: 90, height: 18, fontSize: 10, padding: '0 4px' }}
-      />
+      <input className="input" placeholder="member IDs…" value={inputVal}
+        onChange={e => setInputVal(e.target.value)} onKeyDown={handleKeyDown}
+        style={{ width: 90, height: 18, fontSize: 10, padding: '0 4px' }} />
     </div>
   )
 }
