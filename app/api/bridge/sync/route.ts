@@ -47,13 +47,11 @@ export async function POST(request: NextRequest) {
     throw e
   }
 
-  const ACCEPTED_UNITS = new Set(['kN-m', 'kN-mm', 'unknown'])
-  if (!ACCEPTED_UNITS.has(payload.unit_system)) {
-    return fail(
-      `STAAD is using "${payload.unit_system}" units. StructAI requires kN-m. ` +
-      'In STAAD, go to File → Configure → Units and switch to kN-m, then re-sync.',
-      400,
-    )
+  let unitWarning: string | null = null
+  if (payload.unit_system !== 'kN-m') {
+    unitWarning = `STAAD is using "${payload.unit_system}" units. StructAI expects kN-m. `
+      + 'Values may be incorrect — coordinates are converted assuming metres. '
+      + 'For reliable results, switch STAAD to kN and Meter.'
   }
 
   const supabase = createServiceClient()
@@ -344,6 +342,8 @@ export async function POST(request: NextRequest) {
   return ok({
     sync_id: syncRow.id,
     mismatch_detected: mismatchDetected,
+    unit_system: payload.unit_system,
+    unit_warning: unitWarning,
     counts: {
       nodes: payload.nodes.length,
       members: payload.members.length,
