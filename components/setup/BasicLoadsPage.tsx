@@ -14,9 +14,8 @@ import {
   buildNSCPAllowableCombos,
   buildNSCPUltimateCombos,
   generateAllCombinations,
-  generateFullSeismicBlock,
   generateReferenceLoadsBlock,
-  generateRefLoadCase,
+  generateSeismicDefinition,
   type ReferenceLoadDef,
   type SeismicDefinition,
 } from '@/lib/staad/syntax'
@@ -98,29 +97,13 @@ export function BasicLoadsPage({
     namedRefs,
   }
 
+  // Stub: STAAD requires at least one load entry per case
+  const stub = 'JOINT LOAD\n1 FY 0'
+
   const codeLines = [
-    '* ============================================================',
-    '* REFERENCE LOAD DEFINITIONS',
-    '* ============================================================',
     generateReferenceLoadsBlock(refLoadDefs),
     '',
-    '* ============================================================',
-    '* SEISMIC DEFINITION',
-    '* ============================================================',
-    generateFullSeismicBlock(seismicDef, eqxCase, eqzCase),
-  ]
-  if (includeEQxz) {
-    codeLines.push(
-      '',
-      `LOAD ${eqxzCase} LOADTYPE None  TITLE EQxz`,
-      'REPEAT LOAD',
-      `${eqxCase} 1.0 ${eqzCase} 0.3`,
-    )
-  }
-  // Dummy joint load — STAAD requires at least one load entry per case
-  const dummy = 'JOINT LOAD\n1 FY 0'
-
-  codeLines.push(
+    generateSeismicDef(),
     '',
     '* ============================================================',
     `*  LC ${eqxCase}  = EQx   Seismic +X`,
@@ -133,30 +116,42 @@ export function BasicLoadsPage({
     `*  LC ${wxStart + 2}  = WZ+   Wind +Z`,
     `*  LC ${wxStart + 3}  = WZ-   Wind -Z`,
     '* ============================================================',
-    '',
-    generateRefLoadCase(dlCase, 'Dead', `${dlCase}-DEAD LOAD (DL)`, 'R1'),
-    dummy,
-    '*',
-    generateRefLoadCase(llCase, 'Live', `${llCase}-FLOOR LIVE LOAD (LL)`, 'R2'),
-    dummy,
-    '*',
-    `LOAD ${lrCase} LOADTYPE Roof Live  TITLE ${lrCase}-ROOF LIVE LOAD (RLL)`,
-    dummy,
-    '*',
-    `LOAD ${wxStart} LOADTYPE Wind  TITLE ${wxStart}-WIND LOAD +X (WX+)`,
-    dummy,
-    '*',
-    `LOAD ${wxStart + 1} LOADTYPE Wind  TITLE ${wxStart + 1}-WIND LOAD -X (WX-)`,
-    dummy,
-    '*',
-    `LOAD ${wxStart + 2} LOADTYPE Wind  TITLE ${wxStart + 2}-WIND LOAD +Z (WZ+)`,
-    dummy,
-    '*',
-    `LOAD ${wxStart + 3} LOADTYPE Wind  TITLE ${wxStart + 3}-WIND LOAD -Z (WZ-)`,
-    dummy,
+    `LOAD ${eqxCase} LOADTYPE Seismic  TITLE Eqx`,
+    stub,
+    `LOAD ${eqzCase} LOADTYPE Seismic  TITLE Eqz`,
+    stub,
+  ]
+
+  if (includeEQxz) {
+    codeLines.push(
+      `LOAD ${eqxzCase} LOADTYPE None  TITLE EQxz`,
+      stub,
+    )
+  }
+
+  codeLines.push(
+    `LOAD ${dlCase} LOADTYPE Dead  TITLE DL`,
+    stub,
+    `LOAD ${llCase} LOADTYPE Live  TITLE LL`,
+    stub,
+    `LOAD ${lrCase} LOADTYPE Roof Live  TITLE LR`,
+    stub,
+    `LOAD ${wxStart} LOADTYPE Wind  TITLE Wx_1`,
+    stub,
+    `LOAD ${wxStart + 1} LOADTYPE Wind  TITLE Wx_2`,
+    stub,
+    `LOAD ${wxStart + 2} LOADTYPE Wind  TITLE Wz_1`,
+    stub,
+    `LOAD ${wxStart + 3} LOADTYPE Wind  TITLE Wz_2`,
+    stub,
   )
 
-  // Build load combination blocks
+  // Seismic definition only (DEFINE UBC LOAD) — load cases are in the primary section
+  function generateSeismicDef(): string {
+    return generateSeismicDefinition(seismicDef)
+  }
+
+  // Load combination blocks
   const caseMap = {
     dead: dlCase,
     live: llCase,
@@ -174,10 +169,8 @@ export function BasicLoadsPage({
   codeLines.push(
     '',
     '',
-    '',
     '*****ULTIMATE LOAD COMBINATION*****',
     generateAllCombinations(ultimateCombos),
-    '',
     '',
     '',
     '**ALLOWABLE LOAD COMBINATION**',
