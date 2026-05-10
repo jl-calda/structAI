@@ -62,6 +62,10 @@ export function ColumnMemberLoadsCard({
   const [manualVu, setManualVu] = useState(0)
   const [manualHeight, setManualHeight] = useState(3000)
 
+  const [comboRanges, setComboRanges] = useState<{ from: number; to: number }[]>([
+    { from: 100, to: 124 },
+  ])
+
   const [searchSection, setSearchSection] = useState('')
   const [searchResults, setSearchResults] = useState<MemberInfo[]>([])
   const [searching, setSearching] = useState(false)
@@ -75,11 +79,17 @@ export function ColumnMemberLoadsCard({
       .catch(() => setBridgeOnline(false))
   }, [])
 
+  const comboQueryStr = comboRanges
+    .filter(r => r.from > 0 && r.to >= r.from)
+    .map(r => `${r.from}-${r.to}`)
+    .join(',')
+
   const fetchForcesCached = useCallback(async (inst: InstanceData) => {
     if (inst.memberIds.length === 0) return
     setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: true } : i))
     try {
-      const res = await fetch(`/api/design/member-forces?projectId=${projectId}&memberIds=${inst.memberIds.join(',')}`)
+      const comboParam = comboQueryStr ? `&combos=${comboQueryStr}` : ''
+      const res = await fetch(`/api/design/member-forces?projectId=${projectId}&memberIds=${inst.memberIds.join(',')}${comboParam}`)
       const json = await res.json()
       if (json.ok) {
         const d = json.data
@@ -244,6 +254,36 @@ export function ColumnMemberLoadsCard({
         </div>
       ) : (
         <div>
+          {/* Combo range filter */}
+          <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9.5, color: 'var(--color-ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, minWidth: 80 }}>
+              Combo filter
+            </span>
+            {comboRanges.map((r, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {i > 0 && <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>,</span>}
+                <input className="input" type="number" value={r.from}
+                  onChange={e => setComboRanges(prev => prev.map((rr, j) => j === i ? { ...rr, from: Number(e.target.value) || 0 } : rr))}
+                  style={{ width: 50, height: 20, fontSize: 10.5, textAlign: 'center' }} />
+                <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>–</span>
+                <input className="input" type="number" value={r.to}
+                  onChange={e => setComboRanges(prev => prev.map((rr, j) => j === i ? { ...rr, to: Number(e.target.value) || 0 } : rr))}
+                  style={{ width: 50, height: 20, fontSize: 10.5, textAlign: 'center' }} />
+                {comboRanges.length > 1 && (
+                  <button type="button" onClick={() => setComboRanges(prev => prev.filter((_, j) => j !== i))}
+                    style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 12, padding: 0 }}>×</button>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setComboRanges(prev => [...prev, { from: 0, to: 0 }])}
+              className="btn sm" style={{ height: 20, fontSize: 9, padding: '0 6px' }}>
+              <Icon name="plus" size={8} /> Range
+            </button>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--color-ink-4)', marginLeft: 4 }}>
+              {comboQueryStr ? `LC ${comboQueryStr}` : 'all combos'}
+            </span>
+          </div>
+
           {mode === 'live' && (
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)', display: 'flex', gap: 8, alignItems: 'center' }}>
               <Icon name="search" size={11} />
@@ -298,7 +338,8 @@ export function ColumnMemberLoadsCard({
                   </td>
                   <td>
                     <MemberPicker available={columnMembers} selected={inst.memberIds}
-                      onChange={ids => updateMemberIds(inst.id, ids)} />
+                      onChange={ids => updateMemberIds(inst.id, ids)}
+                      projectId={projectId} bridgeOnline={bridgeOnline} />
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
                     <span className="mono">{inst.height_mm > 0 ? inst.height_mm.toFixed(0) : '—'}</span>
@@ -359,12 +400,31 @@ export function ColumnMemberLoadsCard({
   )
 }
 
-function MemberPicker({ available, selected, onChange }: {
+function MemberPicker({ available, selected, onChange, projectId, bridgeOnline }: {
   available: MemberInfo[]; selected: number[]; onChange: (ids: number[]) => void
+  projectId: string; bridgeOnline: boolean | null
 }) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const [inputVal, setInputVal] = useState('')
+  const [fetching, setFetching] = useState(false)
+
+  const getHighlighted = async () => {
+    setFetching(true)
+    try {
+      const res = await fetch('/api/bridge/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'selected', project_id: projectId }),
+      })
+      const json = await res.json()
+      if (json.ok && json.members?.length > 0) {
+        const ids = json.members.map((m: MemberInfo) => m.member_id)
+        onChange([...new Set([...selected, ...ids])])
+      }
+    } catch { /* bridge offline */ }
+    setFetching(false)
+  }
 
   const removeMember = (id: number) => onChange(selected.filter(x => x !== id))
   const toggleMember = (id: number) => {
@@ -401,6 +461,12 @@ function MemberPicker({ available, selected, onChange }: {
         className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px' }}>
         <Icon name="plus" size={8} /> Choose members
       </button>
+      {bridgeOnline && (
+        <button type="button" onClick={getHighlighted} disabled={fetching}
+          className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px', background: 'var(--color-sel-bg, #E8F0FA)', borderColor: 'var(--color-sel, #2563AB)', color: 'var(--color-sel, #2563AB)' }}>
+          {fetching ? '…' : <><Icon name="sync" size={8} /> Get highlighted</>}
+        </button>
+      )}
       <input className="input" placeholder="or type IDs…" value={inputVal}
         onChange={e => setInputVal(e.target.value)} onKeyDown={handleKeyDown}
         style={{ width: 80, height: 18, fontSize: 10, padding: '0 4px' }} />

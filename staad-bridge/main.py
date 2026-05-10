@@ -35,7 +35,7 @@ from staad_reader import (
     read_model,
     resolve_active_staad_file,
 )
-from staad_query import query_members, query_member_forces, query_search_members
+from staad_query import query_members, query_member_forces, query_search_members, query_selected_members
 from sync_client import post_sync
 
 logger = logging.getLogger("staad-bridge")
@@ -324,5 +324,26 @@ async def query_forces_endpoint(body: QueryForcesBody):
             ),
         )
         return {"ok": True, **result}
+    except StaadError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SelectedBody(BaseModel):
+    project_id: str
+
+
+@app.post("/query/selected")
+async def query_selected_endpoint(body: SelectedBody):
+    """Return members currently highlighted/selected in the STAAD GUI."""
+    s = _state()
+    if body.project_id != s.cfg.project_id:
+        raise HTTPException(status_code=400, detail="project_id mismatch")
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(
+            _com_executor,
+            lambda: query_selected_members(s.cfg.staad_file_path),
+        )
+        return {"ok": True, "members": result}
     except StaadError as e:
         raise HTTPException(status_code=500, detail=str(e))

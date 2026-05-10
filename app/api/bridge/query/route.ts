@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     members: '/query/members',
     search: '/query/search',
     forces: '/query/forces',
+    selected: '/query/selected',
   }
 
   const path = bridgeEndpoint[action]
