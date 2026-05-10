@@ -11,6 +11,9 @@ import {
 } from '@/components/ui/PropRow'
 import { EmbeddedAssemblyPicker } from './EmbeddedAssemblyPicker'
 import {
+  buildNSCPAllowableCombos,
+  buildNSCPUltimateCombos,
+  generateAllCombinations,
   generateFullSeismicBlock,
   generateReferenceLoadsBlock,
   generateRefLoadCase,
@@ -114,25 +117,73 @@ export function BasicLoadsPage({
       `${eqxCase} 1.0 ${eqzCase} 0.3`,
     )
   }
+  // Dummy joint load — STAAD requires at least one load entry per case
+  const dummy = 'JOINT LOAD\n1 FY 0'
+
   codeLines.push(
     '',
     '* ============================================================',
-    '* PRIMARY LOAD CASES',
+    `*  LC ${eqxCase}  = EQx   Seismic +X`,
+    `*  LC ${eqzCase}  = EQz   Seismic +Z`,
+    `*  LC ${dlCase}  = DL    Dead Load`,
+    `*  LC ${llCase}  = LL    Floor Live Load`,
+    `*  LC ${lrCase}  = RLL   Roof Live Load`,
+    `*  LC ${wxStart}  = WX+   Wind +X`,
+    `*  LC ${wxStart + 1}  = WX-   Wind -X`,
+    `*  LC ${wxStart + 2}  = WZ+   Wind +Z`,
+    `*  LC ${wxStart + 3}  = WZ-   Wind -Z`,
     '* ============================================================',
+    '',
     generateRefLoadCase(dlCase, 'Dead', `${dlCase}-DEAD LOAD (DL)`, 'R1'),
+    dummy,
     '*',
     generateRefLoadCase(llCase, 'Live', `${llCase}-FLOOR LIVE LOAD (LL)`, 'R2'),
+    dummy,
     '*',
     `LOAD ${lrCase} LOADTYPE Roof Live  TITLE ${lrCase}-ROOF LIVE LOAD (RLL)`,
+    dummy,
     '*',
     `LOAD ${wxStart} LOADTYPE Wind  TITLE ${wxStart}-WIND LOAD +X (WX+)`,
+    dummy,
     '*',
     `LOAD ${wxStart + 1} LOADTYPE Wind  TITLE ${wxStart + 1}-WIND LOAD -X (WX-)`,
+    dummy,
     '*',
     `LOAD ${wxStart + 2} LOADTYPE Wind  TITLE ${wxStart + 2}-WIND LOAD +Z (WZ+)`,
+    dummy,
     '*',
     `LOAD ${wxStart + 3} LOADTYPE Wind  TITLE ${wxStart + 3}-WIND LOAD -Z (WZ-)`,
+    dummy,
   )
+
+  // Build load combination blocks
+  const caseMap = {
+    dead: dlCase,
+    live: llCase,
+    roof_live: lrCase,
+    seismic_x: eqxCase,
+    seismic_z: eqzCase,
+    wind_x: wxStart,
+    wind_x2: wxStart + 1,
+    wind_z: wxStart + 2,
+    wind_z2: wxStart + 3,
+  }
+  const ultimateCombos = buildNSCPUltimateCombos(caseMap)
+  const allowableCombos = buildNSCPAllowableCombos(caseMap)
+
+  codeLines.push(
+    '',
+    '',
+    '',
+    '*****ULTIMATE LOAD COMBINATION*****',
+    generateAllCombinations(ultimateCombos),
+    '',
+    '',
+    '',
+    '**ALLOWABLE LOAD COMBINATION**',
+    generateAllCombinations(allowableCombos),
+  )
+
   const allCode = codeLines.join('\n')
 
   useEffect(() => { setStaadCode(allCode); return () => { setStaadCode('') } }, [allCode])
