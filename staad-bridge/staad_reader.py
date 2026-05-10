@@ -1261,10 +1261,49 @@ def _support_type_for_node(support, node_id: int) -> Optional[str]:
 
 
 def _section_dims(property_, section_name: str) -> dict:
-    """Section b/h/area are optional in the payload. OpenSTAAD has no
-    per-name width/depth accessor; GetSectionPropertyValues could be used
-    but requires resolving the section reference number first. Left as a
-    best-effort stub — the app side treats these as optional."""
+    """Extract b/h from section name and compute area.
+
+    STAAD prismatic section names follow the pattern:
+      "PRIS YD 0.45 ZD 0.20"  → rectangular (h=450mm, b=200mm)
+      "PRIS YD 0.30"           → circular (d=300mm)
+      "RECT 17.72X7.87"        → alternative format (h×b in current units)
+      "W10X49" / "ISMB300"     → table sections (no parsing — skip)
+
+    After _force_com_units, values in the name are in METRES.
+    """
+    import re
+
+    name = section_name.upper().strip()
+
+    # Pattern 1: PRIS YD <h> ZD <w>
+    m = re.search(r'YD\s+([\d.]+)\s+ZD\s+([\d.]+)', name)
+    if m:
+        h_m = float(m.group(1))
+        b_m = float(m.group(2))
+        h_mm = round(h_m * 1000, 1)
+        b_mm = round(b_m * 1000, 1)
+        return {"b_mm": b_mm, "h_mm": h_mm, "area_mm2": round(b_mm * h_mm, 0)}
+
+    # Pattern 2: PRIS YD <d> (circular — no ZD)
+    m = re.search(r'YD\s+([\d.]+)(?:\s|$)', name)
+    if m and 'ZD' not in name:
+        d_m = float(m.group(1))
+        d_mm = round(d_m * 1000, 1)
+        area = round(math.pi * d_mm * d_mm / 4, 0)
+        return {"b_mm": d_mm, "h_mm": d_mm, "area_mm2": area}
+
+    # Pattern 3: RECT HxW (some STAAD versions use this format)
+    m = re.match(r'RECT\s+([\d.]+)[Xx]([\d.]+)', name)
+    if m:
+        h_val = float(m.group(1))
+        b_val = float(m.group(2))
+        # Values could be in inches or mm depending on context; assume mm
+        # if > 10 (reasonable dimension), else assume metres
+        if h_val < 10:
+            h_val *= 1000
+            b_val *= 1000
+        return {"b_mm": round(b_val, 1), "h_mm": round(h_val, 1), "area_mm2": round(b_val * h_val, 0)}
+
     return {"b_mm": None, "h_mm": None, "area_mm2": None}
 
 

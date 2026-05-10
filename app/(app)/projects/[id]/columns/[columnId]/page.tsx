@@ -188,7 +188,7 @@ export default async function ColumnDesignPage({
             <span className="num-badge">2</span>
             <span className="label">Reinforcement Design</span>
             <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-              longitudinal pattern is full-height · ties zoned per {code.code.replace(/_/g, ' ')}
+              longitudinal pattern is full-height · ties zoned per code
             </span>
           </div>
           <ColumnRebarEditor

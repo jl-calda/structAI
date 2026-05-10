@@ -205,7 +205,7 @@ export function BasicLoadsPage({
       <div className="row" style={{ gap: 10 }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>Basic Loads</span>
         <span className="mono" style={{ color: 'var(--color-ink-3)', fontSize: 11.5 }}>
-          {codeRef} · define each load type with its LRFD factor
+          define each load type with its LRFD factor
         </span>
       </div>
 
@@ -273,7 +273,7 @@ export function BasicLoadsPage({
 
           {/* Card 5 — Seismic */}
           <div className="card">
-            <div className="card-h"><span className="num-badge">5</span><span className="label">Seismic Load (E)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">{codeRef} seismic · factor 1.0</span></div>
+            <div className="card-h"><span className="num-badge">5</span><span className="label">Seismic Load (E)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">seismic · factor 1.0</span></div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--color-line-2)' }}>
               <PropGroup title="5.1 · Seismic Parameters">
                 <PropSelectRow label="Zone" value={seismicZone} opts={['Zone_1', 'Zone_2', 'Zone_3', 'Zone_4']} onChange={setSeismicZone} />
@@ -333,7 +333,7 @@ export function BasicLoadsPage({
 
           {/* Card 6 — Wind */}
           <div className="card">
-            <div className="card-h"><span className="num-badge">6</span><span className="label">Wind Load (W)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">{codeRef} §207 / ASCE 7 · factor 1.0</span></div>
+            <div className="card-h"><span className="num-badge">6</span><span className="label">Wind Load (W)</span><span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">wind · §207 / ASCE 7 · factor 1.0</span></div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid var(--color-line-2)' }}>
               <PropGroup title="6.1 · Wind Parameters">
                 <PropInputRow label="V" unit="km/h" value={windSpeed} onChange={setWindSpeed} desc="basic wind speed" />

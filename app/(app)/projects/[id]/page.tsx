@@ -4,7 +4,7 @@
  * design modules land), frame viewer, and a placeholder Issues card.
  */
 import { SyncBanner } from '@/components/layout/SyncBanner'
-import { FrameViewer, type MemberAssignment } from '@/components/staad/FrameViewer'
+import { FrameViewer3D, type MemberAssignment } from '@/components/staad/FrameViewer3D'
 import { StaadDataView } from '@/components/staad/StaadDataView'
 import { listBeamDesigns } from '@/lib/data/beams'
 import { listColumnDesigns } from '@/lib/data/columns'
@@ -99,8 +99,8 @@ export default async function OverviewPage({
               {members.length} member{members.length === 1 ? '' : 's'}
             </span>
           </div>
-          <div className="cb flex items-center justify-center">
-            <FrameViewer
+          <div className="cb" style={{ padding: 0 }}>
+            <FrameViewer3D
               nodes={nodes}
               members={members}
               assignments={assignments}
