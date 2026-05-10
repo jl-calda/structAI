@@ -534,6 +534,46 @@ export type Database = {
         Relationships: []
       }
 
+      staad_displacements: {
+        Row: {
+          id: string
+          project_id: string
+          node_id: number
+          combo_number: number
+          dx_mm: number
+          dy_mm: number
+          dz_mm: number
+          rx_rad: number
+          ry_rad: number
+          rz_rad: number
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          node_id: number
+          combo_number: number
+          dx_mm?: number
+          dy_mm?: number
+          dz_mm?: number
+          rx_rad?: number
+          ry_rad?: number
+          rz_rad?: number
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          node_id?: number
+          combo_number?: number
+          dx_mm?: number
+          dy_mm?: number
+          dz_mm?: number
+          rx_rad?: number
+          ry_rad?: number
+          rz_rad?: number
+        }
+        Relationships: []
+      }
+
       load_templates: {
         Row: {
           id: string

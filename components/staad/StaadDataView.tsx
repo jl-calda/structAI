@@ -4,6 +4,8 @@ import { useState } from 'react'
 
 import type {
   CombinationRow,
+  DiagramPointRow,
+  DisplacementRow,
   EnvelopeRow,
   LoadCaseRow,
   MaterialRow,
@@ -13,7 +15,7 @@ import type {
   SectionRow,
 } from '@/lib/data/staad'
 
-type Tab = 'nodes' | 'members' | 'sections' | 'materials' | 'load_cases' | 'combos' | 'envelope' | 'reactions'
+type Tab = 'nodes' | 'members' | 'sections' | 'materials' | 'load_cases' | 'combos' | 'envelope' | 'reactions' | 'forces' | 'displacements'
 
 export function StaadDataView({
   nodes,
@@ -24,6 +26,8 @@ export function StaadDataView({
   combinations,
   envelope,
   reactions,
+  displacements,
+  diagramPoints,
 }: {
   nodes: NodeRow[]
   members: MemberRow[]
@@ -33,6 +37,8 @@ export function StaadDataView({
   combinations: CombinationRow[]
   envelope: EnvelopeRow[]
   reactions: ReactionRow[]
+  displacements: DisplacementRow[]
+  diagramPoints: DiagramPointRow[]
 }) {
   const [tab, setTab] = useState<Tab>('members')
 
@@ -43,8 +49,10 @@ export function StaadDataView({
     { k: 'materials', n: 'Materials', count: materials.length },
     { k: 'load_cases', n: 'Load Cases', count: loadCases.length },
     { k: 'combos', n: 'Combinations', count: combinations.length },
-    { k: 'envelope', n: 'Envelope', count: envelope.length },
-    { k: 'reactions', n: 'Reactions', count: reactions.length },
+    { k: 'envelope', n: 'Envelope (peaks)', count: envelope.length },
+    { k: 'forces', n: 'Section Forces (per LC)', count: diagramPoints.length },
+    { k: 'reactions', n: 'Reactions (per LC)', count: reactions.length },
+    { k: 'displacements', n: 'Displacements (per LC)', count: displacements.length },
   ]
 
   return (
@@ -79,7 +87,9 @@ export function StaadDataView({
         {tab === 'load_cases' && <LoadCasesTable rows={loadCases} />}
         {tab === 'combos' && <CombosTable rows={combinations} />}
         {tab === 'envelope' && <EnvelopeTable rows={envelope} />}
+        {tab === 'forces' && <DiagramPointsTable rows={diagramPoints} members={members} />}
         {tab === 'reactions' && <ReactionsTable rows={reactions} />}
+        {tab === 'displacements' && <DisplacementsTable rows={displacements} />}
       </div>
     </div>
   )
@@ -329,6 +339,127 @@ function ReactionsTable({ rows }: { rows: ReactionRow[] }) {
             <td className="num" style={{ textAlign: 'right' }}>{r.mz_knm.toFixed(2)}</td>
           </tr>
         ))}
+      </tbody>
+    </table>
+  )
+}
+
+function DiagramPointsTable({ rows, members }: { rows: DiagramPointRow[]; members: MemberRow[] }) {
+  const [memberFilter, setMemberFilter] = useState<string>('')
+  const [comboFilter, setComboFilter] = useState<string>('')
+
+  if (rows.length === 0) return <Empty what="section forces (diagram points)" />
+
+  const memberIds = [...new Set(rows.map(r => r.member_id))].sort((a, b) => a - b)
+  const comboIds = [...new Set(rows.map(r => r.combo_number))].sort((a, b) => a - b)
+
+  const filtered = rows.filter(r =>
+    (!memberFilter || r.member_id.toString() === memberFilter) &&
+    (!comboFilter || r.combo_number.toString() === comboFilter),
+  )
+
+  return (
+    <div>
+      <div style={{ padding: '6px 10px', display: 'flex', gap: 8, alignItems: 'center', background: 'var(--color-bg)', borderBottom: '1px solid var(--color-line-2)', fontSize: 11 }}>
+        <span style={{ color: 'var(--color-ink-3)', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Filter</span>
+        <select className="input" value={memberFilter} onChange={e => setMemberFilter(e.target.value)} style={{ height: 22, fontSize: 11 }}>
+          <option value="">All members ({memberIds.length})</option>
+          {memberIds.map(id => {
+            const m = members.find(mm => mm.member_id === id)
+            return <option key={id} value={id}>Member {id}{m ? ` · ${m.section_name}` : ''}</option>
+          })}
+        </select>
+        <select className="input" value={comboFilter} onChange={e => setComboFilter(e.target.value)} style={{ height: 22, fontSize: 11 }}>
+          <option value="">All combos ({comboIds.length})</option>
+          {comboIds.map(id => <option key={id} value={id}>Combo {id}</option>)}
+        </select>
+        <span style={{ marginLeft: 'auto', color: 'var(--color-ink-4)', fontSize: 10 }} className="mono">
+          {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} samples
+        </span>
+      </div>
+      <table className="t" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--color-panel)', zIndex: 1 }}>
+          <tr>
+            <th style={{ width: 60 }}>Member</th>
+            <th style={{ width: 60 }}>Combo</th>
+            <th className="num" style={{ width: 50, textAlign: 'right' }}>x/L</th>
+            <th className="num" style={{ width: 70, textAlign: 'right' }}>x (mm)</th>
+            <th className="num" style={{ width: 90, textAlign: 'right' }}>Mz (kN·m)</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>Vy (kN)</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>N (kN)</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>My (kN·m)</th>
+            <th className="num" style={{ width: 70, textAlign: 'right' }}>Vz (kN)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.slice(0, 2000).map((p, i) => {
+            const isFirstOfGroup = i === 0
+              || filtered[i - 1].member_id !== p.member_id
+              || filtered[i - 1].combo_number !== p.combo_number
+            return (
+              <tr key={`${p.member_id}-${p.combo_number}-${p.x_ratio}-${i}`}
+                style={{ background: isFirstOfGroup ? 'var(--color-bg)' : 'transparent' }}>
+                <td>{isFirstOfGroup && <span style={{ fontWeight: 600 }}>{p.member_id}</span>}</td>
+                <td>{isFirstOfGroup && <span style={{ fontWeight: 600 }}>{p.combo_number}</span>}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{p.x_ratio.toFixed(2)}</td>
+                <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-3)' }}>{p.x_mm.toFixed(0)}</td>
+                <td className="num" style={{ textAlign: 'right', color: p.mz_knm > 0 ? 'var(--color-ink)' : p.mz_knm < 0 ? 'var(--color-fail)' : 'var(--color-ink-4)', fontWeight: Math.abs(p.mz_knm) > 0.01 ? 600 : 400 }}>
+                  {p.mz_knm.toFixed(2)}
+                </td>
+                <td className="num" style={{ textAlign: 'right' }}>{p.vy_kn.toFixed(2)}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{p.n_kn.toFixed(2)}</td>
+                <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-4)' }}>{p.my_knm != null ? p.my_knm.toFixed(2) : '—'}</td>
+                <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-4)' }}>{p.vz_kn != null ? p.vz_kn.toFixed(2) : '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      {filtered.length > 2000 && (
+        <div style={{ padding: 8, fontSize: 10, color: 'var(--color-ink-4)', textAlign: 'center', borderTop: '1px solid var(--color-line-2)', background: 'var(--color-bg)' }}>
+          Showing first 2,000 of {filtered.length.toLocaleString()} — use filters to narrow down.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DisplacementsTable({ rows }: { rows: DisplacementRow[] }) {
+  if (rows.length === 0) return <Empty what="displacements" />
+  return (
+    <table className="t" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
+      <thead style={{ position: 'sticky', top: 0, background: 'var(--color-panel)' }}>
+        <tr>
+          <th style={{ width: 60 }}>Node</th>
+          <th style={{ width: 60 }}>Combo</th>
+          <th className="num" style={{ textAlign: 'right' }}>dx (mm)</th>
+          <th className="num" style={{ textAlign: 'right' }}>dy (mm)</th>
+          <th className="num" style={{ textAlign: 'right' }}>dz (mm)</th>
+          <th className="num" style={{ textAlign: 'right' }}>rx (rad)</th>
+          <th className="num" style={{ textAlign: 'right' }}>ry (rad)</th>
+          <th className="num" style={{ textAlign: 'right' }}>rz (rad)</th>
+          <th className="num" style={{ textAlign: 'right' }}>|d| (mm)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((d, i) => {
+          const dabs = Math.sqrt(d.dx_mm * d.dx_mm + d.dy_mm * d.dy_mm + d.dz_mm * d.dz_mm)
+          return (
+            <tr key={`${d.node_id}-${d.combo_number}-${i}`}>
+              <td style={{ fontWeight: 600 }}>{d.node_id}</td>
+              <td>{d.combo_number}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{d.dx_mm.toFixed(3)}</td>
+              <td className="num" style={{ textAlign: 'right', fontWeight: Math.abs(d.dy_mm) > 1 ? 600 : 400, color: Math.abs(d.dy_mm) > 1 ? 'var(--color-fail)' : 'var(--color-ink)' }}>
+                {d.dy_mm.toFixed(3)}
+              </td>
+              <td className="num" style={{ textAlign: 'right' }}>{d.dz_mm.toFixed(3)}</td>
+              <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-3)' }}>{d.rx_rad.toExponential(2)}</td>
+              <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-3)' }}>{d.ry_rad.toExponential(2)}</td>
+              <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-3)' }}>{d.rz_rad.toExponential(2)}</td>
+              <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{dabs.toFixed(3)}</td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )

@@ -105,6 +105,17 @@ export type SyncReaction = {
   mz_knm: number
 }
 
+export type SyncDisplacement = {
+  node_id: number
+  combo_number: number
+  dx_mm: number
+  dy_mm: number
+  dz_mm: number
+  rx_rad: number
+  ry_rad: number
+  rz_rad: number
+}
+
 export type SyncPayload = {
   project_id: string
   file_name: string
@@ -119,6 +130,7 @@ export type SyncPayload = {
   diagram_points: SyncDiagramPoint[]
   envelope: SyncEnvelope[]
   reactions: SyncReaction[]
+  displacements?: SyncDisplacement[]
 }
 
 // ---------------------------------------------------------------------------

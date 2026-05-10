@@ -26,6 +26,7 @@ from payload import (
     SyncNode,
     SyncPayload,
     SyncReaction,
+    SyncDisplacement,
     SyncSection,
 )
 
@@ -801,6 +802,40 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 mz_knm=float(mz),
             ))
 
+    # Displacements — GetNodeDisplacements(nNodeNo, nLC, pdDisps).
+    # Returns 6 values: dx, dy, dz (in metres), rx, ry, rz (radians).
+    # Convert metres → mm. Sample all nodes (not just supports — joints
+    # see significant deflection too).
+    displacements: List[SyncDisplacement] = []
+    try:
+        output._FlagAsMethod("GetNodeDisplacements")
+    except Exception:
+        pass
+    for node in [n.node_id for n in nodes]:
+        for combo in combo_numbers:
+            pd_disp = _make_variant_double_array(6)
+            try:
+                output.GetNodeDisplacements(node, combo, pd_disp)
+            except Exception as e:
+                log.warning(
+                    "GetNodeDisplacements(node=%d, lc=%d): %s", node, combo, e,
+                )
+                continue
+            d = _variant_to_list(pd_disp)
+            if len(d) < 6:
+                d = list(d) + [0.0] * (6 - len(d))
+            dx, dy, dz, rx, ry, rz = d[0:6]
+            displacements.append(SyncDisplacement(
+                node_id=int(node),
+                combo_number=int(combo),
+                dx_mm=float(dx) * 1000,  # m → mm
+                dy_mm=float(dy) * 1000,
+                dz_mm=float(dz) * 1000,
+                rx_rad=float(rx),
+                ry_rad=float(ry),
+                rz_rad=float(rz),
+            ))
+
     return SyncPayload(
         project_id=project_id,
         file_name=file_path.name,
@@ -815,6 +850,7 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         diagram_points=diagram_points,
         envelope=envelope,
         reactions=reactions,
+        displacements=displacements,
     )
 
 

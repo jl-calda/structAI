@@ -325,6 +325,30 @@ export async function POST(request: NextRequest) {
             { onConflict: 'project_id,node_id,combo_number' },
           ),
     },
+    {
+      label: 'staad_displacements',
+      run: async () => {
+        if (!payload.displacements || payload.displacements.length === 0) {
+          return { error: null }
+        }
+        return supabase
+          .from('staad_displacements')
+          .upsert(
+            payload.displacements.map((d) => ({
+              project_id: projectId,
+              node_id: d.node_id,
+              combo_number: d.combo_number,
+              dx_mm: d.dx_mm,
+              dy_mm: d.dy_mm,
+              dz_mm: d.dz_mm,
+              rx_rad: d.rx_rad,
+              ry_rad: d.ry_rad,
+              rz_rad: d.rz_rad,
+            })),
+            { onConflict: 'project_id,node_id,combo_number' },
+          )
+      },
+    },
   ]
 
   for (const step of steps) {

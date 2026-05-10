@@ -17,6 +17,7 @@ export type CombinationRow = Database['public']['Tables']['staad_combinations'][
 export type EnvelopeRow = Database['public']['Tables']['staad_envelope']['Row']
 export type ReactionRow = Database['public']['Tables']['staad_reactions']['Row']
 export type DiagramPointRow = Database['public']['Tables']['staad_diagram_points']['Row']
+export type DisplacementRow = Database['public']['Tables']['staad_displacements']['Row']
 
 export type SyncStatusKind = 'green' | 'amber' | 'red' | 'none'
 
@@ -133,6 +134,36 @@ export async function listReactions(projectId: string): Promise<ReactionRow[]> {
     .order('node_id', { ascending: true })
     .order('combo_number', { ascending: true })
   if (error) throw new Error(`listReactions: ${error.message}`)
+  return data ?? []
+}
+
+export async function listDisplacements(projectId: string): Promise<DisplacementRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_displacements')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('node_id', { ascending: true })
+    .order('combo_number', { ascending: true })
+  if (error) throw new Error(`listDisplacements: ${error.message}`)
+  return data ?? []
+}
+
+/** Section forces — caps at 5000 rows (large table). */
+export async function listDiagramPoints(
+  projectId: string,
+  limit = 5000,
+): Promise<DiagramPointRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_diagram_points')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('member_id', { ascending: true })
+    .order('combo_number', { ascending: true })
+    .order('x_ratio', { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(`listDiagramPoints: ${error.message}`)
   return data ?? []
 }
 

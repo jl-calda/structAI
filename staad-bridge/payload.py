@@ -117,6 +117,17 @@ class SyncReaction(BaseModel):
     mz_knm: float = 0.0
 
 
+class SyncDisplacement(BaseModel):
+    node_id: int
+    combo_number: int
+    dx_mm: float = 0.0
+    dy_mm: float = 0.0
+    dz_mm: float = 0.0
+    rx_rad: float = 0.0
+    ry_rad: float = 0.0
+    rz_rad: float = 0.0
+
+
 class SyncPayload(BaseModel):
     """Top-level payload POSTed to /api/bridge/sync."""
 
@@ -133,6 +144,7 @@ class SyncPayload(BaseModel):
     diagram_points: List[SyncDiagramPoint]
     envelope: List[SyncEnvelope]
     reactions: List[SyncReaction]
+    displacements: List[SyncDisplacement] = []
 
 
 # --- Inbound shapes (app → bridge) ------------------------------------------
