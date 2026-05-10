@@ -18,6 +18,8 @@ export type EnvelopeRow = Database['public']['Tables']['staad_envelope']['Row']
 export type ReactionRow = Database['public']['Tables']['staad_reactions']['Row']
 export type DiagramPointRow = Database['public']['Tables']['staad_diagram_points']['Row']
 export type DisplacementRow = Database['public']['Tables']['staad_displacements']['Row']
+export type EndForceRow = Database['public']['Tables']['staad_end_forces']['Row']
+export type DeflectionRow = Database['public']['Tables']['staad_deflections']['Row']
 
 export type SyncStatusKind = 'green' | 'amber' | 'red' | 'none'
 
@@ -146,6 +148,39 @@ export async function listDisplacements(projectId: string): Promise<Displacement
     .order('node_id', { ascending: true })
     .order('combo_number', { ascending: true })
   if (error) throw new Error(`listDisplacements: ${error.message}`)
+  return data ?? []
+}
+
+export async function listEndForces(
+  projectId: string,
+  limit = 5000,
+): Promise<EndForceRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_end_forces')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('member_id', { ascending: true })
+    .order('end_index', { ascending: true })
+    .order('combo_number', { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(`listEndForces: ${error.message}`)
+  return data ?? []
+}
+
+export async function listDeflections(
+  projectId: string,
+  limit = 5000,
+): Promise<DeflectionRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_deflections')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('member_id', { ascending: true })
+    .order('combo_number', { ascending: true })
+    .limit(limit)
+  if (error) throw new Error(`listDeflections: ${error.message}`)
   return data ?? []
 }
 

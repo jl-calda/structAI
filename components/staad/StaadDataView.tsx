@@ -4,8 +4,10 @@ import { useState } from 'react'
 
 import type {
   CombinationRow,
+  DeflectionRow,
   DiagramPointRow,
   DisplacementRow,
+  EndForceRow,
   EnvelopeRow,
   LoadCaseRow,
   MaterialRow,
@@ -15,7 +17,7 @@ import type {
   SectionRow,
 } from '@/lib/data/staad'
 
-type Tab = 'nodes' | 'members' | 'sections' | 'materials' | 'load_cases' | 'combos' | 'envelope' | 'reactions' | 'forces' | 'displacements'
+type Tab = 'nodes' | 'members' | 'sections' | 'materials' | 'load_cases' | 'combos' | 'envelope' | 'reactions' | 'forces' | 'displacements' | 'end_forces' | 'deflections'
 
 export function StaadDataView({
   nodes,
@@ -28,6 +30,8 @@ export function StaadDataView({
   reactions,
   displacements,
   diagramPoints,
+  endForces,
+  deflections,
 }: {
   nodes: NodeRow[]
   members: MemberRow[]
@@ -39,6 +43,8 @@ export function StaadDataView({
   reactions: ReactionRow[]
   displacements: DisplacementRow[]
   diagramPoints: DiagramPointRow[]
+  endForces: EndForceRow[]
+  deflections: DeflectionRow[]
 }) {
   const [tab, setTab] = useState<Tab>('members')
 
@@ -50,9 +56,11 @@ export function StaadDataView({
     { k: 'load_cases', n: 'Load Cases', count: loadCases.length },
     { k: 'combos', n: 'Combinations', count: combinations.length },
     { k: 'envelope', n: 'Envelope (peaks)', count: envelope.length },
-    { k: 'forces', n: 'Section Forces (per LC)', count: diagramPoints.length },
-    { k: 'reactions', n: 'Reactions (per LC)', count: reactions.length },
-    { k: 'displacements', n: 'Displacements (per LC)', count: displacements.length },
+    { k: 'forces', n: 'Section Forces', count: diagramPoints.length },
+    { k: 'end_forces', n: 'End Forces', count: endForces.length },
+    { k: 'reactions', n: 'Reactions', count: reactions.length },
+    { k: 'displacements', n: 'Displacements', count: displacements.length },
+    { k: 'deflections', n: 'Beam Deflections', count: deflections.length },
   ]
 
   return (
@@ -88,8 +96,10 @@ export function StaadDataView({
         {tab === 'combos' && <CombosTable rows={combinations} />}
         {tab === 'envelope' && <EnvelopeTable rows={envelope} />}
         {tab === 'forces' && <DiagramPointsTable rows={diagramPoints} members={members} />}
+        {tab === 'end_forces' && <EndForcesTable rows={endForces} members={members} />}
         {tab === 'reactions' && <ReactionsTable rows={reactions} />}
         {tab === 'displacements' && <DisplacementsTable rows={displacements} />}
+        {tab === 'deflections' && <DeflectionsTable rows={deflections} members={members} />}
       </div>
     </div>
   )
@@ -138,11 +148,14 @@ function MembersTable({ rows }: { rows: MemberRow[] }) {
       <thead style={{ position: 'sticky', top: 0, background: 'var(--color-panel)' }}>
         <tr>
           <th style={{ width: 60 }}>Member</th>
-          <th className="num" style={{ width: 70, textAlign: 'right' }}>Start</th>
-          <th className="num" style={{ width: 70, textAlign: 'right' }}>End</th>
+          <th className="num" style={{ width: 60, textAlign: 'right' }}>Start</th>
+          <th className="num" style={{ width: 60, textAlign: 'right' }}>End</th>
           <th>Section</th>
-          <th className="num" style={{ textAlign: 'right' }}>Length (mm)</th>
+          <th className="num" style={{ textAlign: 'right' }}>Length</th>
+          <th className="num" style={{ width: 50, textAlign: 'right' }}>β°</th>
           <th>Type</th>
+          <th>Release-i</th>
+          <th>Release-j</th>
         </tr>
       </thead>
       <tbody>
@@ -153,12 +166,24 @@ function MembersTable({ rows }: { rows: MemberRow[] }) {
             <td className="num" style={{ textAlign: 'right' }}>{r.end_node_id}</td>
             <td>{r.section_name}</td>
             <td className="num" style={{ textAlign: 'right' }}>{r.length_mm.toFixed(0)}</td>
+            <td className="num" style={{ textAlign: 'right' }}>{r.beta_angle_deg.toFixed(1)}</td>
             <td style={{ color: 'var(--color-ink-3)' }}>{r.member_type}</td>
+            <td style={{ color: 'var(--color-ink-3)', fontSize: 9 }}>{formatRelease(r.release_start)}</td>
+            <td style={{ color: 'var(--color-ink-3)', fontSize: 9 }}>{formatRelease(r.release_end)}</td>
           </tr>
         ))}
       </tbody>
     </table>
   )
+}
+
+function formatRelease(rel: MemberRow['release_start']): string {
+  if (!rel || typeof rel !== 'object') return '—'
+  const r = rel as Record<string, boolean>
+  const released = (['fx', 'fy', 'fz', 'mx', 'my', 'mz'] as const).filter(k => r[k])
+  if (released.length === 0) return 'fixed'
+  if (released.length === 3 && released.every(k => k.startsWith('m'))) return 'pinned'
+  return released.join('+').toUpperCase()
 }
 
 function SectionsTable({ rows }: { rows: SectionRow[] }) {
@@ -421,6 +446,119 @@ function DiagramPointsTable({ rows, members }: { rows: DiagramPointRow[]; member
         </div>
       )}
     </div>
+  )
+}
+
+function EndForcesTable({ rows, members }: { rows: EndForceRow[]; members: MemberRow[] }) {
+  const [memberFilter, setMemberFilter] = useState<string>('')
+  const [comboFilter, setComboFilter] = useState<string>('')
+
+  if (rows.length === 0) return <Empty what="end forces" />
+
+  const memberIds = [...new Set(rows.map(r => r.member_id))].sort((a, b) => a - b)
+  const comboIds = [...new Set(rows.map(r => r.combo_number))].sort((a, b) => a - b)
+
+  const filtered = rows.filter(r =>
+    (!memberFilter || r.member_id.toString() === memberFilter) &&
+    (!comboFilter || r.combo_number.toString() === comboFilter),
+  )
+
+  return (
+    <div>
+      <div style={{ padding: '6px 10px', display: 'flex', gap: 8, alignItems: 'center', background: 'var(--color-bg)', borderBottom: '1px solid var(--color-line-2)', fontSize: 11 }}>
+        <span style={{ color: 'var(--color-ink-3)', fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Filter</span>
+        <select className="input" value={memberFilter} onChange={e => setMemberFilter(e.target.value)} style={{ height: 22, fontSize: 11 }}>
+          <option value="">All members ({memberIds.length})</option>
+          {memberIds.map(id => {
+            const m = members.find(mm => mm.member_id === id)
+            return <option key={id} value={id}>Member {id}{m ? ` · ${m.section_name}` : ''}</option>
+          })}
+        </select>
+        <select className="input" value={comboFilter} onChange={e => setComboFilter(e.target.value)} style={{ height: 22, fontSize: 11 }}>
+          <option value="">All combos ({comboIds.length})</option>
+          {comboIds.map(id => <option key={id} value={id}>Combo {id}</option>)}
+        </select>
+        <span style={{ marginLeft: 'auto', color: 'var(--color-ink-4)', fontSize: 10 }} className="mono">
+          {filtered.length.toLocaleString()} of {rows.length.toLocaleString()} rows
+        </span>
+      </div>
+      <table className="t" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--color-panel)', zIndex: 1 }}>
+          <tr>
+            <th style={{ width: 60 }}>Member</th>
+            <th style={{ width: 50 }}>End</th>
+            <th style={{ width: 60 }}>Combo</th>
+            <th className="num" style={{ textAlign: 'right' }}>Fx (kN)</th>
+            <th className="num" style={{ textAlign: 'right' }}>Fy (kN)</th>
+            <th className="num" style={{ textAlign: 'right' }}>Fz (kN)</th>
+            <th className="num" style={{ textAlign: 'right' }}>Mx (kN·m)</th>
+            <th className="num" style={{ textAlign: 'right' }}>My (kN·m)</th>
+            <th className="num" style={{ textAlign: 'right' }}>Mz (kN·m)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.slice(0, 2000).map((r, i) => (
+            <tr key={`${r.member_id}-${r.end_index}-${r.combo_number}-${i}`}>
+              <td style={{ fontWeight: 600 }}>{r.member_id}</td>
+              <td>{r.end_index === 0 ? 'i (start)' : 'j (end)'}</td>
+              <td>{r.combo_number}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.fx_kn.toFixed(2)}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.fy_kn.toFixed(2)}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.fz_kn.toFixed(2)}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.mx_knm.toFixed(2)}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.my_knm.toFixed(2)}</td>
+              <td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{r.mz_knm.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {filtered.length > 2000 && (
+        <div style={{ padding: 8, fontSize: 10, color: 'var(--color-ink-4)', textAlign: 'center', borderTop: '1px solid var(--color-line-2)', background: 'var(--color-bg)' }}>
+          Showing first 2,000 of {filtered.length.toLocaleString()} — use filters to narrow down.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DeflectionsTable({ rows, members }: { rows: DeflectionRow[]; members: MemberRow[] }) {
+  if (rows.length === 0) return <Empty what="beam deflections" />
+  return (
+    <table className="t" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
+      <thead style={{ position: 'sticky', top: 0, background: 'var(--color-panel)' }}>
+        <tr>
+          <th style={{ width: 60 }}>Member</th>
+          <th>Section</th>
+          <th style={{ width: 60 }}>Combo</th>
+          <th className="num" style={{ textAlign: 'right' }}>x/L</th>
+          <th className="num" style={{ textAlign: 'right' }}>dy (mm)</th>
+          <th className="num" style={{ textAlign: 'right' }}>dz (mm)</th>
+          <th className="num" style={{ textAlign: 'right' }}>L/dy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => {
+          const m = members.find(mm => mm.member_id === r.member_id)
+          const ratio = m && Math.abs(r.dy_mm) > 0.001 ? m.length_mm / Math.abs(r.dy_mm) : null
+          const failsL360 = ratio !== null && ratio < 360
+          return (
+            <tr key={`${r.member_id}-${r.combo_number}-${r.x_ratio}-${i}`}>
+              <td style={{ fontWeight: 600 }}>{r.member_id}</td>
+              <td style={{ color: 'var(--color-ink-3)' }}>{m?.section_name ?? '—'}</td>
+              <td>{r.combo_number}</td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.x_ratio.toFixed(2)}</td>
+              <td className="num" style={{ textAlign: 'right', color: failsL360 ? 'var(--color-fail)' : 'var(--color-ink)', fontWeight: failsL360 ? 600 : 400 }}>
+                {r.dy_mm.toFixed(3)}
+              </td>
+              <td className="num" style={{ textAlign: 'right' }}>{r.dz_mm.toFixed(3)}</td>
+              <td className="num" style={{ textAlign: 'right', color: failsL360 ? 'var(--color-fail)' : 'var(--color-ink-3)' }}>
+                {ratio !== null ? `L/${ratio.toFixed(0)}` : '—'}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
   )
 }
 

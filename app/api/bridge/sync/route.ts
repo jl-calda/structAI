@@ -223,6 +223,8 @@ export async function POST(request: NextRequest) {
               length_mm: m.length_mm,
               beta_angle_deg: m.beta_angle_deg ?? 0,
               member_type: m.member_type,
+              release_start: m.release_start ?? null,
+              release_end: m.release_end ?? null,
             })),
             { onConflict: 'project_id,member_id' },
           ),
@@ -346,6 +348,52 @@ export async function POST(request: NextRequest) {
               rz_rad: d.rz_rad,
             })),
             { onConflict: 'project_id,node_id,combo_number' },
+          )
+      },
+    },
+    {
+      label: 'staad_end_forces',
+      run: async () => {
+        if (!payload.end_forces || payload.end_forces.length === 0) {
+          return { error: null }
+        }
+        return supabase
+          .from('staad_end_forces')
+          .upsert(
+            payload.end_forces.map((f) => ({
+              project_id: projectId,
+              member_id: f.member_id,
+              end_index: f.end_index,
+              combo_number: f.combo_number,
+              fx_kn: f.fx_kn,
+              fy_kn: f.fy_kn,
+              fz_kn: f.fz_kn,
+              mx_knm: f.mx_knm,
+              my_knm: f.my_knm,
+              mz_knm: f.mz_knm,
+            })),
+            { onConflict: 'project_id,member_id,end_index,combo_number' },
+          )
+      },
+    },
+    {
+      label: 'staad_deflections',
+      run: async () => {
+        if (!payload.deflections || payload.deflections.length === 0) {
+          return { error: null }
+        }
+        return supabase
+          .from('staad_deflections')
+          .upsert(
+            payload.deflections.map((d) => ({
+              project_id: projectId,
+              member_id: d.member_id,
+              combo_number: d.combo_number,
+              x_ratio: d.x_ratio,
+              dy_mm: d.dy_mm,
+              dz_mm: d.dz_mm,
+            })),
+            { onConflict: 'project_id,member_id,combo_number,x_ratio' },
           )
       },
     },

@@ -37,6 +37,8 @@ class SyncMember(BaseModel):
     length_mm: float
     beta_angle_deg: float = 0.0
     member_type: MemberType
+    release_start: Optional['SyncReleaseSpec'] = None
+    release_end: Optional['SyncReleaseSpec'] = None
 
 
 class SyncSection(BaseModel):
@@ -128,6 +130,35 @@ class SyncDisplacement(BaseModel):
     rz_rad: float = 0.0
 
 
+class SyncReleaseSpec(BaseModel):
+    fx: bool = False
+    fy: bool = False
+    fz: bool = False
+    mx: bool = False
+    my: bool = False
+    mz: bool = False
+
+
+class SyncEndForce(BaseModel):
+    member_id: int
+    end_index: int  # 0 = start, 1 = end
+    combo_number: int
+    fx_kn: float = 0.0
+    fy_kn: float = 0.0
+    fz_kn: float = 0.0
+    mx_knm: float = 0.0
+    my_knm: float = 0.0
+    mz_knm: float = 0.0
+
+
+class SyncDeflection(BaseModel):
+    member_id: int
+    combo_number: int
+    x_ratio: float
+    dy_mm: float = 0.0
+    dz_mm: float = 0.0
+
+
 class SyncPayload(BaseModel):
     """Top-level payload POSTed to /api/bridge/sync."""
 
@@ -145,6 +176,8 @@ class SyncPayload(BaseModel):
     envelope: List[SyncEnvelope]
     reactions: List[SyncReaction]
     displacements: List[SyncDisplacement] = []
+    end_forces: List[SyncEndForce] = []
+    deflections: List[SyncDeflection] = []
 
 
 # --- Inbound shapes (app → bridge) ------------------------------------------

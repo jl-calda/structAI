@@ -12,8 +12,10 @@ import { getProject } from '@/lib/data/projects'
 import {
   getLatestSync,
   listCombinations,
+  listDeflections,
   listDiagramPoints,
   listDisplacements,
+  listEndForces,
   listEnvelope,
   listLoadCases,
   listMaterials,
@@ -38,7 +40,7 @@ export default async function OverviewPage({
   const [
     latest, members, nodes, beamDesigns, columnDesigns,
     sections, materials, loadCases, combinations, envelope, reactions,
-    displacements, diagramPoints,
+    displacements, diagramPoints, endForces, deflections,
   ] = await Promise.all([
     getLatestSync(id),
     listMembers(id),
@@ -53,6 +55,8 @@ export default async function OverviewPage({
     listReactions(id),
     listDisplacements(id),
     listDiagramPoints(id, 5000),
+    listEndForces(id, 5000),
+    listDeflections(id, 5000),
   ])
 
   const beamCount = members.filter((m) => m.member_type === 'beam').length
@@ -154,6 +158,8 @@ export default async function OverviewPage({
           reactions={reactions}
           displacements={displacements}
           diagramPoints={diagramPoints}
+          endForces={endForces}
+          deflections={deflections}
         />
       </section>
     </div>
