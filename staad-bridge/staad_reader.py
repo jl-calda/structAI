@@ -562,7 +562,13 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     _flag_load_methods(load)
     _flag_output_methods(output)
 
-    # Detect the unit system STAAD is currently using.
+    # CRITICAL: STAAD's COM API returns values in its INTERNAL unit, which
+    # is English (inches/lbs) regardless of the .std file's UNIT line or
+    # the GUI's display setting. Force COM to metres + kN before reading
+    # so all our `* 1000` conversions are correct.
+    _force_com_units(staad, log)
+
+    # Detect (now confirms metres-kN since we just set it)
     unit_system = _detect_unit_system(staad, log)
 
     # Nodes
@@ -810,6 +816,31 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         envelope=envelope,
         reactions=reactions,
     )
+
+
+def _force_com_units(staad, log) -> None:
+    """Force STAAD's COM API to use metres + kN.
+
+    OpenSTAAD's internal COM unit is English (inches/lbs) regardless of
+    the .std file's UNIT METER KN line or the GUI's display setting.
+    `SetInputUnitForLength(0)` = metres, `SetInputUnitForForce(0)` = kN.
+    Without this, GetNodeCoordinates() returns inches, GetBeamLength()
+    returns inches, and forces come back in kip — all silently wrong.
+
+    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm
+    Force codes:  0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS
+    """
+    try:
+        try:
+            staad._FlagAsMethod("SetInputUnitForLength")
+            staad._FlagAsMethod("SetInputUnitForForce")
+        except Exception:
+            pass
+        staad.SetInputUnitForLength(0)  # metres
+        staad.SetInputUnitForForce(0)   # kN
+        log.info("forced COM units: length=metres force=kN")
+    except Exception as e:
+        log.warning("could not force COM units (will detect instead): %s", e)
 
 
 def _detect_unit_system(staad, log) -> str:

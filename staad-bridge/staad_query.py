@@ -13,7 +13,11 @@ import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from staad_reader import StaadError, _connect_to_staad, _open_staad, _com_int, _unwrap, _unwrap_float
+import logging
+
+from staad_reader import StaadError, _connect_to_staad, _open_staad, _com_int, _unwrap, _unwrap_float, _force_com_units
+
+_log = logging.getLogger("staad-query")
 
 N_SAMPLES = 11
 
@@ -39,6 +43,7 @@ def query_members(
 
     try:
         staad = _open_staad(file_path)
+        _force_com_units(staad, _log)
         geo = staad.Geometry
         prop = staad.Property
 
@@ -163,6 +168,7 @@ def query_member_forces(
 
     try:
         staad = _open_staad(file_path)
+        _force_com_units(staad, _log)
         geo = staad.Geometry
         load_ = staad.Load
         out = staad.Output
@@ -280,6 +286,7 @@ def query_selected_members(file_path: Optional[Path]) -> List[Dict[str, Any]]:
 
     try:
         staad = _open_staad(file_path)
+        _force_com_units(staad, _log)
         geo = staad.Geometry
         view = staad.View
 
