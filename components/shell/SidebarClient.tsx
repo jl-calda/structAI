@@ -27,7 +27,7 @@ const NAV_TOP = [
 ] as const
 
 const NAV_PROJECT = [
-  { key: 'overview', label: 'Overview', icon: 'overview' as IconName, sub: '' },
+  { key: 'overview', label: 'STAAD', icon: 'overview' as IconName, sub: '' },
   { key: 'setup', label: 'Setup', icon: 'setup' as IconName, sub: '/setup' },
   { key: 'members', label: 'Members', icon: 'members' as IconName, sub: '/members' },
   { key: 'basicloads', label: 'Basic Loads', icon: 'combos' as IconName, sub: '/basicloads' },

@@ -26,6 +26,10 @@ from payload import (
     SyncNode,
     SyncPayload,
     SyncReaction,
+    SyncDisplacement,
+    SyncEndForce,
+    SyncDeflection,
+    SyncReleaseSpec,
     SyncSection,
 )
 
@@ -636,6 +640,25 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             "member %d: nodes=(%d,%d) d=(%.0f,%.0f,%.0f) type=%s",
             i, start_id, end_id, dx, dy, dz, member_type,
         )
+        # Beta angle (member rotation about local x). Some builds expose
+        # GetBetaAngle on Property, others on Geometry. Default to 0.
+        beta = 0.0
+        try:
+            try:
+                property_._FlagAsMethod("GetBetaAngle")
+            except Exception:
+                pass
+            beta = float(_unwrap_float(property_.GetBetaAngle(i)))
+        except Exception:
+            try:
+                beta = float(_unwrap_float(geometry.GetBetaAngle(i)))
+            except Exception:
+                beta = 0.0
+
+        # Member end releases. GetMemberReleaseSpec returns 6 booleans per end.
+        rel_start = _read_member_release(property_, i, 0, log)
+        rel_end = _read_member_release(property_, i, 1, log)
+
         members.append(
             SyncMember(
                 member_id=i,
@@ -643,8 +666,10 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 end_node_id=end_id,
                 section_name=section_name,
                 length_mm=length_mm,
-                beta_angle_deg=0.0,
+                beta_angle_deg=beta,
                 member_type=member_type,
+                release_start=rel_start,
+                release_end=rel_end,
             )
         )
 
@@ -801,6 +826,100 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
                 mz_knm=float(mz),
             ))
 
+    # Displacements — GetNodeDisplacements(nNodeNo, nLC, pdDisps).
+    # Returns 6 values: dx, dy, dz (in metres), rx, ry, rz (radians).
+    # Convert metres → mm. Sample all nodes (not just supports — joints
+    # see significant deflection too).
+    displacements: List[SyncDisplacement] = []
+    try:
+        output._FlagAsMethod("GetNodeDisplacements")
+    except Exception:
+        pass
+    for node in [n.node_id for n in nodes]:
+        for combo in combo_numbers:
+            pd_disp = _make_variant_double_array(6)
+            try:
+                output.GetNodeDisplacements(node, combo, pd_disp)
+            except Exception as e:
+                log.warning(
+                    "GetNodeDisplacements(node=%d, lc=%d): %s", node, combo, e,
+                )
+                continue
+            d = _variant_to_list(pd_disp)
+            if len(d) < 6:
+                d = list(d) + [0.0] * (6 - len(d))
+            dx, dy, dz, rx, ry, rz = d[0:6]
+            displacements.append(SyncDisplacement(
+                node_id=int(node),
+                combo_number=int(combo),
+                dx_mm=float(dx) * 1000,  # m → mm
+                dy_mm=float(dy) * 1000,
+                dz_mm=float(dz) * 1000,
+                rx_rad=float(rx),
+                ry_rad=float(ry),
+                rz_rad=float(rz),
+            ))
+
+    # End forces — GetMemberEndForces(mid, nEnd, nLC, &pdForces, LocalOrGlobal).
+    # nEnd = 0 (start) / 1 (end). LocalOrGlobal = 0 (local axes — what we want).
+    end_forces: List[SyncEndForce] = []
+    try:
+        output._FlagAsMethod("GetMemberEndForces")
+    except Exception:
+        pass
+    member_ids = [m.member_id for m in members]
+    for mid in member_ids:
+        for combo in combo_numbers:
+            for end_idx in (0, 1):
+                pd_f = _make_variant_double_array(6)
+                try:
+                    output.GetMemberEndForces(mid, end_idx, combo, pd_f, 0)
+                except Exception as e:
+                    log.warning(
+                        "GetMemberEndForces(m=%d, end=%d, lc=%d): %s",
+                        mid, end_idx, combo, e,
+                    )
+                    continue
+                f = _variant_to_list(pd_f)
+                if len(f) < 6:
+                    f = list(f) + [0.0] * (6 - len(f))
+                fx, fy, fz, mx, my, mz = f[0:6]
+                end_forces.append(SyncEndForce(
+                    member_id=int(mid), end_index=int(end_idx),
+                    combo_number=int(combo),
+                    fx_kn=float(fx), fy_kn=float(fy), fz_kn=float(fz),
+                    mx_knm=float(mx), my_knm=float(my), mz_knm=float(mz),
+                ))
+
+    # Deflections — GetIntermediateDeflectionAtDistance(mid, dist_m, lc, &dY, &dZ).
+    # Sample at midspan only (x_ratio = 0.5) per combo. Full curve is too much.
+    deflections: List[SyncDeflection] = []
+    try:
+        output._FlagAsMethod("GetIntermediateDeflectionAtDistance")
+    except Exception:
+        pass
+    for m in members:
+        L_m = m.length_mm / 1000.0  # COM expects metres after _force_com_units
+        mid_pos = 0.5 * L_m
+        for combo in combo_numbers:
+            sa_y = _make_variant_double_array(1)
+            sa_z = _make_variant_double_array(1)
+            try:
+                output.GetIntermediateDeflectionAtDistance(
+                    m.member_id, mid_pos, combo, sa_y, sa_z,
+                )
+            except Exception:
+                continue
+            dy = _unwrap_float(sa_y) * 1000  # m → mm
+            dz = _unwrap_float(sa_z) * 1000
+            deflections.append(SyncDeflection(
+                member_id=int(m.member_id),
+                combo_number=int(combo),
+                x_ratio=0.5,
+                dy_mm=float(dy),
+                dz_mm=float(dz),
+            ))
+
     return SyncPayload(
         project_id=project_id,
         file_name=file_path.name,
@@ -815,7 +934,40 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         diagram_points=diagram_points,
         envelope=envelope,
         reactions=reactions,
+        displacements=displacements,
+        end_forces=end_forces,
+        deflections=deflections,
     )
+
+
+def _read_member_release(property_, member_id: int, end: int, log) -> Optional[SyncReleaseSpec]:
+    """Read member end release spec via GetMemberReleaseSpec.
+
+    end: 0 = start (i), 1 = end (j).
+    Returns SyncReleaseSpec(fx,fy,fz,mx,my,mz) where True = released (free).
+    Returns None if STAAD doesn't expose the method or the call fails.
+    """
+    try:
+        try:
+            property_._FlagAsMethod("GetMemberReleaseSpec")
+        except Exception:
+            pass
+        # Some versions: GetMemberReleaseSpec(member_id, end, &rel_array)
+        import win32com.client as w32
+        import pythoncom as pc
+        sa = w32.VARIANT(pc.VT_ARRAY | pc.VT_I4, [0] * 6)
+        var = w32.VARIANT(pc.VT_BYREF | pc.VT_I4, sa)
+        property_.GetMemberReleaseSpec(member_id, end, var)
+        vals = list(var.value)
+        if len(vals) < 6:
+            return None
+        return SyncReleaseSpec(
+            fx=bool(vals[0]), fy=bool(vals[1]), fz=bool(vals[2]),
+            mx=bool(vals[3]), my=bool(vals[4]), mz=bool(vals[5]),
+        )
+    except Exception as e:
+        # Don't spam logs — most members have no releases
+        return None
 
 
 def _force_com_units(staad, log) -> None:

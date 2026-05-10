@@ -36,6 +36,16 @@ export type LoadType =
 
 export type MemberType = 'beam' | 'column' | 'brace' | 'other'
 
+/** Per-end member release flags. true = released (free), false = restrained. */
+export type ReleaseSpec = {
+  fx: boolean
+  fy: boolean
+  fz: boolean
+  mx: boolean
+  my: boolean
+  mz: boolean
+}
+
 export type SupportType =
   | 'fixed'
   | 'pinned'
@@ -244,6 +254,8 @@ export type Database = {
           length_mm: number
           beta_angle_deg: number
           member_type: MemberType
+          release_start: ReleaseSpec | null
+          release_end: ReleaseSpec | null
         }
         Insert: {
           id?: string
@@ -256,6 +268,8 @@ export type Database = {
           length_mm: number
           beta_angle_deg?: number
           member_type?: MemberType
+          release_start?: ReleaseSpec | null
+          release_end?: ReleaseSpec | null
         }
         Update: {
           id?: string
@@ -268,6 +282,8 @@ export type Database = {
           length_mm?: number
           beta_angle_deg?: number
           member_type?: MemberType
+          release_start?: ReleaseSpec | null
+          release_end?: ReleaseSpec | null
         }
         Relationships: []
       }
@@ -530,6 +546,120 @@ export type Database = {
           mx_knm?: number
           my_knm?: number
           mz_knm?: number
+        }
+        Relationships: []
+      }
+
+      staad_displacements: {
+        Row: {
+          id: string
+          project_id: string
+          node_id: number
+          combo_number: number
+          dx_mm: number
+          dy_mm: number
+          dz_mm: number
+          rx_rad: number
+          ry_rad: number
+          rz_rad: number
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          node_id: number
+          combo_number: number
+          dx_mm?: number
+          dy_mm?: number
+          dz_mm?: number
+          rx_rad?: number
+          ry_rad?: number
+          rz_rad?: number
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          node_id?: number
+          combo_number?: number
+          dx_mm?: number
+          dy_mm?: number
+          dz_mm?: number
+          rx_rad?: number
+          ry_rad?: number
+          rz_rad?: number
+        }
+        Relationships: []
+      }
+
+      staad_end_forces: {
+        Row: {
+          id: string
+          project_id: string
+          member_id: number
+          end_index: number
+          combo_number: number
+          fx_kn: number
+          fy_kn: number
+          fz_kn: number
+          mx_knm: number
+          my_knm: number
+          mz_knm: number
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          member_id: number
+          end_index: number
+          combo_number: number
+          fx_kn?: number
+          fy_kn?: number
+          fz_kn?: number
+          mx_knm?: number
+          my_knm?: number
+          mz_knm?: number
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          member_id?: number
+          end_index?: number
+          combo_number?: number
+          fx_kn?: number
+          fy_kn?: number
+          fz_kn?: number
+          mx_knm?: number
+          my_knm?: number
+          mz_knm?: number
+        }
+        Relationships: []
+      }
+
+      staad_deflections: {
+        Row: {
+          id: string
+          project_id: string
+          member_id: number
+          combo_number: number
+          x_ratio: number
+          dy_mm: number
+          dz_mm: number
+        }
+        Insert: {
+          id?: string
+          project_id: string
+          member_id: number
+          combo_number: number
+          x_ratio: number
+          dy_mm?: number
+          dz_mm?: number
+        }
+        Update: {
+          id?: string
+          project_id?: string
+          member_id?: number
+          combo_number?: number
+          x_ratio?: number
+          dy_mm?: number
+          dz_mm?: number
         }
         Relationships: []
       }

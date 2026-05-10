@@ -21,6 +21,15 @@ export type SyncNode = {
   support_type: SupportType
 }
 
+export type SyncReleaseSpec = {
+  fx: boolean
+  fy: boolean
+  fz: boolean
+  mx: boolean
+  my: boolean
+  mz: boolean
+}
+
 export type SyncMember = {
   member_id: number
   start_node_id: number
@@ -30,6 +39,8 @@ export type SyncMember = {
   length_mm: number
   beta_angle_deg?: number
   member_type: MemberType
+  release_start?: SyncReleaseSpec | null
+  release_end?: SyncReleaseSpec | null
 }
 
 export type SyncSection = {
@@ -105,6 +116,37 @@ export type SyncReaction = {
   mz_knm: number
 }
 
+export type SyncDisplacement = {
+  node_id: number
+  combo_number: number
+  dx_mm: number
+  dy_mm: number
+  dz_mm: number
+  rx_rad: number
+  ry_rad: number
+  rz_rad: number
+}
+
+export type SyncEndForce = {
+  member_id: number
+  end_index: number  // 0 = start, 1 = end
+  combo_number: number
+  fx_kn: number
+  fy_kn: number
+  fz_kn: number
+  mx_knm: number
+  my_knm: number
+  mz_knm: number
+}
+
+export type SyncDeflection = {
+  member_id: number
+  combo_number: number
+  x_ratio: number  // 0.0 to 1.0
+  dy_mm: number
+  dz_mm: number
+}
+
 export type SyncPayload = {
   project_id: string
   file_name: string
@@ -119,6 +161,9 @@ export type SyncPayload = {
   diagram_points: SyncDiagramPoint[]
   envelope: SyncEnvelope[]
   reactions: SyncReaction[]
+  displacements?: SyncDisplacement[]
+  end_forces?: SyncEndForce[]
+  deflections?: SyncDeflection[]
 }
 
 // ---------------------------------------------------------------------------
