@@ -700,36 +700,89 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
         )
     ]
 
-    # Load cases — every COM return goes through _unwrap/_safe_com_call.
+    # Load cases — use PLURAL GetPrimaryLoadCaseNumbers (array-filling).
+    # The singular GetPrimaryLoadCaseNumber(i) does NOT exist in OpenSTAAD —
+    # only the plural form exists per the docs. Earlier code that called the
+    # singular silently failed and used sequential 1..N numbers instead.
+    #
+    # In STAAD, REPEAT LOAD cases (PERFORM ANALYSIS + CHANGE) are technically
+    # primary load cases. We split them: cases with case number ≥ 100 are
+    # reclassified as combinations (NSCP/ACI numbering: 1-99 = primary,
+    # 100+ = ultimate combos, 200+ = ASD combos).
     n_cases = _com_int(load, "GetPrimaryLoadCaseCount")
-    log.info("staad read: %d primary load cases", n_cases)
-    load_cases: List[SyncLoadCase] = []
-    for i in range(1, n_cases + 1):
-        num = _safe_com_call(load, "GetPrimaryLoadCaseNumber", i)
-        if num is None or num == 0:
-            num = i  # fallback: assume 1-indexed case numbers
-        title = _safe_com_call(load, "GetLoadCaseTitle", num)
-        title_str = str(title) if title else f"CASE {num}"
-        load_cases.append(
-            SyncLoadCase(
-                case_number=int(num),
-                title=title_str,
-                load_type=_infer_load_type(title_str),
-            )
-        )
+    log.info("staad read: %d primary load cases (incl REPEAT LOAD combos)", n_cases)
 
-    # Combinations — same pattern: one plural array-filling call.
+    primary_case_numbers: List[int] = []
+    if n_cases > 0:
+        try:
+            import win32com.client as w32
+            import pythoncom as pc
+            sa = w32.VARIANT(pc.VT_ARRAY | pc.VT_I4, [0] * n_cases)
+            arr = w32.VARIANT(pc.VT_BYREF | pc.VT_I4, sa)
+            load.GetPrimaryLoadCaseNumbers(arr)
+            primary_case_numbers = [int(x) for x in list(arr.value) if int(x) > 0]
+        except Exception as e:
+            log.warning("GetPrimaryLoadCaseNumbers failed: %s — falling back to 1..N", e)
+            primary_case_numbers = list(range(1, n_cases + 1))
+
+    log.info("primary case numbers: %s", primary_case_numbers)
+
+    load_cases: List[SyncLoadCase] = []
+    repeat_load_combos: List[SyncCombination] = []
+    repeat_load_combo_numbers: List[int] = []
+
+    for num in primary_case_numbers:
+        title = _safe_com_call(load, "GetLoadCaseTitle", num)
+        title_str = str(title).strip() if title else f"CASE {num}"
+        if not title_str:
+            title_str = f"CASE {num}"
+        load_type = _infer_load_type(title_str)
+
+        # Reclassify case numbers ≥ 100 as combinations (REPEAT LOAD pattern)
+        if num >= 100:
+            repeat_load_combos.append(SyncCombination(
+                combo_number=num,
+                title=title_str,
+                factors=[],
+            ))
+            repeat_load_combo_numbers.append(num)
+        else:
+            load_cases.append(SyncLoadCase(
+                case_number=num,
+                title=title_str,
+                load_type=load_type,
+            ))
+
+    log.info(
+        "split: %d primary cases, %d REPEAT LOAD combos",
+        len(load_cases), len(repeat_load_combos),
+    )
+
+    # Combinations — true LOAD COMBINATION commands (separate from REPEAT LOAD).
+    # Uses GetLoadCombinationCaseNumbers (plural).
     n_combos = _com_int(load, "GetLoadCombinationCaseCount")
-    log.info("staad read: %d combinations", n_combos)
-    combos: List[SyncCombination] = []
-    combo_numbers: List[int] = []
-    for i in range(1, n_combos + 1):
-        combo_num = _safe_com_call(load, "GetLoadCombinationCaseNumber", i)
-        if combo_num is None or combo_num == 0:
-            combo_num = 100 + i
+    log.info("staad read: %d true LOAD COMBINATION cases", n_combos)
+
+    true_combo_numbers: List[int] = []
+    if n_combos > 0:
+        try:
+            import win32com.client as w32
+            import pythoncom as pc
+            sa = w32.VARIANT(pc.VT_ARRAY | pc.VT_I4, [0] * n_combos)
+            arr = w32.VARIANT(pc.VT_BYREF | pc.VT_I4, sa)
+            load.GetLoadCombinationCaseNumbers(arr)
+            true_combo_numbers = [int(x) for x in list(arr.value) if int(x) > 0]
+        except Exception as e:
+            log.warning("GetLoadCombinationCaseNumbers failed: %s", e)
+
+    combos: List[SyncCombination] = list(repeat_load_combos)
+    combo_numbers: List[int] = list(repeat_load_combo_numbers)
+    for combo_num in true_combo_numbers:
         combo_numbers.append(int(combo_num))
         title = _safe_com_call(load, "GetLoadCaseTitle", combo_num)
-        title_str = str(title) if title else f"COMBO {combo_num}"
+        title_str = str(title).strip() if title else f"COMBO {combo_num}"
+        if not title_str:
+            title_str = f"COMBO {combo_num}"
         # STAAD exposes the factors via a separate call; we skip parsing
         # and record an empty factors list — the app regenerates its own
         # combos when the user hits "Generate" in the UI.
