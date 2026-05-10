@@ -17,6 +17,18 @@ import { Icon } from '@/components/ui/Icon'
 
 type MemberInfo = { member_id: number; section_name: string; length_mm: number; member_type: string }
 
+type SectionForcePoint = {
+  member_id: number
+  combo_number: number
+  x_ratio: number
+  x_mm: number
+  mz_knm: number
+  vy_kn: number
+  n_kn: number
+  my_knm?: number
+  vz_kn?: number
+}
+
 type InstanceData = {
   id: number
   label: string
@@ -65,6 +77,11 @@ export function BeamMemberLoadsCard({
   const [comboRanges, setComboRanges] = useState<{ from: number; to: number }[]>([
     { from: 100, to: 124 },
   ])
+
+  // View tab: summary instances or raw section forces table
+  const [viewTab, setViewTab] = useState<'instances' | 'forces'>('instances')
+  const [forcesData, setForcesData] = useState<SectionForcePoint[] | null>(null)
+  const [forcesLoading, setForcesLoading] = useState(false)
 
   // Live search state
   const [searchSection, setSearchSection] = useState('')
@@ -217,6 +234,38 @@ export function BeamMemberLoadsCard({
     }
   }, { mpos: 0, mneg: 0, vu: 0 })
 
+  // Fetch section-force points for all member IDs across all instances
+  const fetchSectionForces = useCallback(async () => {
+    const allIds = [...new Set(instances.flatMap(i => i.memberIds))]
+    if (allIds.length === 0) {
+      setForcesData([])
+      return
+    }
+    setForcesLoading(true)
+    try {
+      const comboParam = comboQueryStr ? `&combos=${comboQueryStr}` : ''
+      const res = await fetch(`/api/design/section-forces?projectId=${projectId}&memberIds=${allIds.join(',')}${comboParam}`)
+      const json = await res.json()
+      if (json.ok) setForcesData(json.data.points)
+      else setForcesData([])
+    } catch {
+      setForcesData([])
+    }
+    setForcesLoading(false)
+  }, [projectId, instances, comboQueryStr])
+
+  // Fetch when switching to forces tab
+  useEffect(() => {
+    if (viewTab === 'forces' && forcesData === null) {
+      fetchSectionForces()
+    }
+  }, [viewTab, forcesData, fetchSectionForces])
+
+  // Reset forces data when combos or instances change so it re-fetches
+  useEffect(() => {
+    setForcesData(null)
+  }, [comboQueryStr, instances])
+
   return (
     <div className="card">
       <div className="card-h">
@@ -246,6 +295,29 @@ export function BeamMemberLoadsCard({
           </div>
         </div>
       </div>
+
+      {/* View tabs — only shown for cached/live modes */}
+      {mode !== 'manual' && (
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)' }}>
+          {[
+            { k: 'instances', n: 'Instances · summary' },
+            { k: 'forces', n: 'Section forces · raw points' },
+          ].map(t => (
+            <button key={t.k} type="button" onClick={() => setViewTab(t.k as typeof viewTab)}
+              style={{
+                padding: '6px 14px', fontSize: 10.5, fontWeight: 600,
+                letterSpacing: '0.04em', textTransform: 'uppercase',
+                background: viewTab === t.k ? 'var(--color-panel)' : 'transparent',
+                border: 0, borderRight: '1px solid var(--color-line-2)',
+                borderBottom: viewTab === t.k ? '2px solid var(--color-ink)' : '2px solid transparent',
+                cursor: 'pointer',
+                color: viewTab === t.k ? 'var(--color-ink)' : 'var(--color-ink-3)',
+              }}>
+              {t.n}
+            </button>
+          ))}
+        </div>
+      )}
 
       {mode === 'manual' ? (
         <div className="card-b" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
@@ -286,6 +358,15 @@ export function BeamMemberLoadsCard({
             </span>
           </div>
 
+          {viewTab === 'forces' ? (
+            <SectionForcesTable
+              points={forcesData}
+              loading={forcesLoading}
+              onRefresh={fetchSectionForces}
+              members={beamMembers}
+            />
+          ) : (
+          <>
           {/* Live search bar (visible in live mode) */}
           {mode === 'live' && (
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)', display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -407,6 +488,8 @@ export function BeamMemberLoadsCard({
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       )}
     </div>
@@ -634,6 +717,113 @@ function ManualField({ label, unit, value, onChange }: {
           style={{ flex: 1, height: 24, fontSize: 12 }} />
         <span className="mono" style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>{unit}</span>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Section forces table — raw 11-point M(x), V(x), N(x) samples per member per combo.
+ * Displays the data the design engine actually reads from staad_diagram_points,
+ * so the user can verify what STAAD synced.
+ */
+function SectionForcesTable({
+  points,
+  loading,
+  onRefresh,
+  members,
+}: {
+  points: SectionForcePoint[] | null
+  loading: boolean
+  onRefresh: () => void
+  members: MemberInfo[]
+}) {
+  if (loading) {
+    return (
+      <div style={{ padding: 20, textAlign: 'center', color: 'var(--color-ink-4)', fontSize: 11 }}>
+        Loading section forces…
+      </div>
+    )
+  }
+  if (!points || points.length === 0) {
+    return (
+      <div style={{ padding: 20, textAlign: 'center', color: 'var(--color-ink-4)', fontSize: 11 }}>
+        No section forces in cache for the selected members + combos.
+        <br />
+        Run analysis in STAAD and re-sync, or check that combo numbers match.
+        <br />
+        <button type="button" onClick={onRefresh} className="btn sm" style={{ marginTop: 8 }}>
+          <Icon name="sync" size={10} /> Retry
+        </button>
+      </div>
+    )
+  }
+
+  // Group by member + combo for compact display
+  const byMember = new Map<number, Map<number, SectionForcePoint[]>>()
+  for (const p of points) {
+    if (!byMember.has(p.member_id)) byMember.set(p.member_id, new Map())
+    const byCombo = byMember.get(p.member_id)!
+    if (!byCombo.has(p.combo_number)) byCombo.set(p.combo_number, [])
+    byCombo.get(p.combo_number)!.push(p)
+  }
+
+  return (
+    <div style={{ maxHeight: 480, overflow: 'auto' }}>
+      <div style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8, background: 'var(--color-bg)', borderBottom: '1px solid var(--color-line-2)' }}>
+        <span style={{ fontSize: 10, color: 'var(--color-ink-3)' }}>
+          {points.length.toLocaleString()} samples · {byMember.size} members · {[...new Set(points.map(p => p.combo_number))].length} combos
+        </span>
+        <span style={{ flex: 1 }} />
+        <button type="button" onClick={onRefresh} className="btn sm ghost" style={{ height: 20, fontSize: 10 }}>
+          <Icon name="sync" size={9} /> Refresh
+        </button>
+      </div>
+      <table className="t" style={{ fontSize: 10.5, fontFamily: 'var(--font-mono)' }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--color-panel)', zIndex: 1 }}>
+          <tr>
+            <th style={{ width: 70 }}>Member</th>
+            <th style={{ width: 60 }}>Combo</th>
+            <th className="num" style={{ width: 60, textAlign: 'right' }}>x/L</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>x (mm)</th>
+            <th className="num" style={{ width: 100, textAlign: 'right' }}>Mz (kN·m)</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>Vy (kN)</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>N (kN)</th>
+            <th className="num" style={{ width: 90, textAlign: 'right' }}>My (kN·m)</th>
+            <th className="num" style={{ width: 80, textAlign: 'right' }}>Vz (kN)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {[...byMember.entries()].flatMap(([mid, byCombo]) => {
+            const memberInfo = members.find(m => m.member_id === mid)
+            return [...byCombo.entries()].flatMap(([combo, pts]) => (
+              pts.map((p, i) => (
+                <tr key={`${mid}-${combo}-${i}`} style={{
+                  background: i === 0 ? 'var(--color-bg)' : 'transparent',
+                }}>
+                  <td>
+                    {i === 0 && (
+                      <span>
+                        <span style={{ fontWeight: 600 }}>{mid}</span>
+                        {memberInfo && <span style={{ color: 'var(--color-ink-4)', fontSize: 9, marginLeft: 4 }}>{memberInfo.section_name}</span>}
+                      </span>
+                    )}
+                  </td>
+                  <td>{i === 0 && <span style={{ fontWeight: 600 }}>{combo}</span>}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{p.x_ratio.toFixed(2)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-3)' }}>{p.x_mm.toFixed(0)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: p.mz_knm > 0 ? 'var(--color-ink)' : p.mz_knm < 0 ? 'var(--color-fail)' : 'var(--color-ink-4)', fontWeight: Math.abs(p.mz_knm) > 0.01 ? 600 : 400 }}>
+                    {p.mz_knm.toFixed(2)}
+                  </td>
+                  <td className="num" style={{ textAlign: 'right' }}>{p.vy_kn.toFixed(2)}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{p.n_kn.toFixed(2)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-4)' }}>{p.my_knm != null ? p.my_knm.toFixed(2) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'right', color: 'var(--color-ink-4)' }}>{p.vz_kn != null ? p.vz_kn.toFixed(2) : '—'}</td>
+                </tr>
+              ))
+            ))
+          })}
+        </tbody>
+      </table>
     </div>
   )
 }
