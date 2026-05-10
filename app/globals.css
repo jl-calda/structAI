@@ -904,3 +904,113 @@ button { font: inherit; color: inherit; }
 
   .sync, .flex.items-center.gap-3.rounded { padding: 4px 8px; font-size: 10px; }
 }
+
+/* =========================================================================
+   MOBILE RESPONSIVE OVERRIDES
+   ========================================================================= */
+
+/* ---------- Tablet (≤ 1024px) ---------- */
+@media (max-width: 1024px) {
+  /* Right inspector collapses on tablet */
+  .right { display: none; }
+
+  /* 3-column design layouts → 2 columns */
+  [data-step="2-reinforcement"] .card-b {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* ---------- Mobile (≤ 768px) ---------- */
+@media (max-width: 768px) {
+  /* Sidebar → collapsed by default (icon rail) */
+  .left { width: 44px !important; }
+  .left .nav-item span,
+  .left .left-head,
+  .left .tree-scroll,
+  .left .left-section:last-child { display: none; }
+
+  /* Right inspector hidden */
+  .right { display: none; }
+
+  /* Top nav — smaller, wrap tools */
+  .topbar { height: auto; min-height: 36px; flex-wrap: wrap; padding: 4px 8px; gap: 4px; }
+
+  /* Canvas full-width */
+  .center { min-width: 100vw; }
+
+  /* All 2-column property grids → single column */
+  .prop-group { border-left: none !important; }
+  .card-b > [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* 3-column design layouts → single column */
+  [data-step="2-reinforcement"] .card-b,
+  [data-step="3-forces"] .card-b {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tables → horizontal scroll */
+  table.t { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* Calc breakdown grids → stack */
+  .card-b [style*="gridTemplateColumns: '72px 1fr 110px 70px'"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Buttons → larger touch targets */
+  .btn { min-height: 36px; padding: 0 12px; font-size: 12px; }
+  .btn.sm { min-height: 30px; padding: 0 10px; }
+  .iconbtn { width: 36px; height: 36px; }
+
+  /* Inputs → larger for touch */
+  .input, .select { height: 32px; font-size: 13px; }
+
+  /* Tags → larger */
+  .tag { padding: 3px 8px; font-size: 10.5px; }
+
+  /* Card headers → wrap */
+  .card-h { flex-wrap: wrap; gap: 4px; min-height: auto; padding: 6px 10px; }
+  .card-h .right { margin-left: 0; width: 100%; }
+
+  /* Result bar → wrap */
+  .result-bar { flex-wrap: wrap; gap: 4px; }
+
+  /* Sync banner → wrap */
+  .sync { flex-wrap: wrap; gap: 4px; }
+
+  /* SVGs → responsive width */
+  svg { max-width: 100%; height: auto; }
+
+  /* Member picker dropdown → full width */
+  .card td { white-space: normal; }
+
+  /* Spinner → larger */
+  .spinner button { width: 32px; height: 32px; }
+  .spinner input { height: 32px; width: 40px; }
+
+  /* Sub-labels */
+  .sub-label { font-size: 10px; }
+
+  /* Row layout → wrap */
+  .row { flex-wrap: wrap; }
+
+  /* Header text → smaller on mobile */
+  .mono[style*="fontSize: 18"] { font-size: 15px !important; }
+}
+
+/* ---------- Small phone (≤ 480px) ---------- */
+@media (max-width: 480px) {
+  /* Sidebar completely hidden */
+  .left { display: none; }
+
+  /* Even smaller text */
+  body { font-size: 11px; }
+
+  /* Cards → less padding */
+  .card-b { padding: 6px 8px; }
+  .prop-group { padding: 6px 8px; }
+
+  /* Force single column everywhere */
+  * { max-width: 100vw; }
+}

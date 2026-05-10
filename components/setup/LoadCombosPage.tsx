@@ -91,7 +91,7 @@ export function LoadCombosPage({
       <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 16, fontWeight: 600 }}>Load Combinations</span>
         <span className="mono" style={{ color: 'var(--color-ink-3)', fontSize: 11.5 }}>
-          {codeRef} · {ultimateCombos.length} ultimate + {allowableCombos.length} allowable
+          {ultimateCombos.length} ultimate + {allowableCombos.length} allowable
         </span>
         <div className="spacer" />
         <button type="button" className="btn sm" onClick={() => setShowCode(!showCode)}>
@@ -148,7 +148,7 @@ export function LoadCombosPage({
           <span className="num-badge">1</span>
           <span className="label">Ultimate Load Combinations (LRFD)</span>
           <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-            {codeRef} §203 · {ultimateCombos.length} combinations
+            §203 · {ultimateCombos.length} combinations
           </span>
         </div>
         <div className="card-b" style={{ padding: 0, overflowX: 'auto' }}>
@@ -162,7 +162,7 @@ export function LoadCombosPage({
           <span className="num-badge">2</span>
           <span className="label">Allowable Load Combinations (ASD)</span>
           <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-            {codeRef} §203 · for soil bearing, deflection checks · {allowableCombos.length} combinations
+            §203 · for soil bearing, deflection checks · {allowableCombos.length} combinations
           </span>
         </div>
         <div className="card-b" style={{ padding: 0, overflowX: 'auto' }}>

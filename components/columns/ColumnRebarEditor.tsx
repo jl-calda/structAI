@@ -182,7 +182,7 @@ export function ColumnRebarEditor({
           </div>
         </RebarBlock>
 
-        <RebarBlock title="Code limits" color="#9CA0A8" hint={code.code.replace(/_/g, ' ')}>
+        <RebarBlock title="Code limits" color="#9CA0A8">
           <div className="mono" style={{ fontSize: 10.5, color: 'var(--color-ink-3)', display: 'flex', flexDirection: 'column', gap: 2 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span>ρmin</span><span>{(code.rho_column_min * 100).toFixed(1)}%</span>

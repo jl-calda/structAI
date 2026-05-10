@@ -86,7 +86,7 @@ export function ColDevSpliceCard({
         <span className="num-badge">4b</span>
         <span className="label">Development &amp; Splicing</span>
         <span style={{ color: 'var(--color-ink-4)', fontSize: 10.5 }} className="mono">
-          {code.code.replace(/_/g, ' ')} · λ={lambda.toFixed(1)} · ψg={psiG.toFixed(2)}
+          §25.4 / §25.5 · λ={lambda.toFixed(1)} · ψg={psiG.toFixed(2)}
         </span>
         <div className="right">
           <span className="tag">ldc {ldGov}</span>
