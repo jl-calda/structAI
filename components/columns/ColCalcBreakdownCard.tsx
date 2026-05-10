@@ -32,6 +32,7 @@ export function ColCalcBreakdownCard({
   const [tab, setTab] = useState('axial')
 
   const beta1 = code.stress_block_depth_factor(fc)
+  const alpha1 = code.stress_block_stress_factor(fc)
   const Ec = 4700 * Math.sqrt(fc)
   const colType = classCol === 'Spiral' ? 'spiral' as const : 'tied' as const
   const phi = code.phi_axial(0, colType)
@@ -50,7 +51,7 @@ export function ColCalcBreakdownCard({
   const Mc = deltaNs * Mux
 
   // Axial
-  const Po = 0.85 * fc * (Ag - AsLong) + fy * AsLong
+  const Po = alpha1 * code.fcd(fc) * (Ag - AsLong) + code.fyd(fy) * AsLong
   const phiPnMax = factor * phi * Po / 1000
   const interactionRatio = Math.max(PuMax / phiPnMax, (Mux + Muy) / phiMn)
 
