@@ -10,7 +10,15 @@ import {
   PropStaticRow,
 } from '@/components/ui/PropRow'
 import { EmbeddedAssemblyPicker } from './EmbeddedAssemblyPicker'
-import { generateFullSeismicBlock, type SeismicDefinition } from '@/lib/staad/syntax'
+import {
+  buildNSCPAllowableCombos,
+  buildNSCPUltimateCombos,
+  generateAllCombinations,
+  generateReferenceLoadsBlock,
+  generateSeismicDefinition,
+  type ReferenceLoadDef,
+  type SeismicDefinition,
+} from '@/lib/staad/syntax'
 import { setStaadCode } from '@/lib/stores/staad-code-store'
 import type { CodeStandard } from '@/lib/supabase/types'
 
@@ -65,11 +73,17 @@ export function BasicLoadsPage({
   const wxStart = dlCase + 3
 
   const SOIL_MAP: Record<string, number> = { SA: 1, SB: 2, SC: 3, SD: 4, SE: 5, SF: 5 }
-  const massCaseMap: Record<string, number> = { DL: dlCase, LL: llCase, LR: lrCase }
-  const refLoads: { caseNumber: number; factor: number }[] = []
-  for (const [key, ref] of Object.entries(massRefs)) {
-    if (ref.on && massCaseMap[key]) refLoads.push({ caseNumber: massCaseMap[key], factor: ref.factor })
-  }
+
+  // Build R-load definitions (reusable load patterns)
+  const refLoadDefs: ReferenceLoadDef[] = [
+    { id: 'R1', loadType: 'Dead', title: 'DEAD LOAD', selfWeight: { factor: swFactor } },
+    { id: 'R2', loadType: 'Live', title: 'LIVE LOAD' },
+  ]
+
+  // Named R-load references for seismic mass (W)
+  const namedRefs: { refId: string; factor: number }[] = []
+  if (massRefs.DL.on) namedRefs.push({ refId: 'R1', factor: massRefs.DL.factor })
+  if (massRefs.LL.on) namedRefs.push({ refId: 'R2', factor: massRefs.LL.factor })
 
   const isNSCP = code.startsWith('NSCP')
   const seismicDef: SeismicDefinition = {
@@ -79,36 +93,90 @@ export function BasicLoadsPage({
     rwx: rFactor,
     rwz: rFactor,
     soilType: SOIL_MAP[soilProfile] ?? 4,
-    referenceLoads: refLoads,
+    referenceLoads: [],
+    namedRefs,
   }
+
+  // Stub: STAAD requires at least one load entry per case
+  const stub = 'JOINT LOAD\n1 FY 0'
+
   const codeLines = [
-    generateFullSeismicBlock(seismicDef, eqxCase, eqzCase),
+    generateReferenceLoadsBlock(refLoadDefs),
+    '',
+    generateSeismicDef(),
+    '',
+    '* ============================================================',
+    `*  LC ${eqxCase}  = EQx   Seismic +X`,
+    `*  LC ${eqzCase}  = EQz   Seismic +Z`,
+    `*  LC ${dlCase}  = DL    Dead Load`,
+    `*  LC ${llCase}  = LL    Floor Live Load`,
+    `*  LC ${lrCase}  = RLL   Roof Live Load`,
+    `*  LC ${wxStart}  = WX+   Wind +X`,
+    `*  LC ${wxStart + 1}  = WX-   Wind -X`,
+    `*  LC ${wxStart + 2}  = WZ+   Wind +Z`,
+    `*  LC ${wxStart + 3}  = WZ-   Wind -Z`,
+    '* ============================================================',
+    `LOAD ${eqxCase} LOADTYPE Seismic  TITLE Eqx`,
+    stub,
+    `LOAD ${eqzCase} LOADTYPE Seismic  TITLE Eqz`,
+    stub,
   ]
+
   if (includeEQxz) {
     codeLines.push(
-      '',
-      `LOAD ${eqxzCase} LOADTYPE None TITLE EQxz`,
-      'REPEAT LOAD',
-      `${eqxCase} 1.0 ${eqzCase} 0.3`,
+      `LOAD ${eqxzCase} LOADTYPE None  TITLE EQxz`,
+      stub,
     )
   }
+
+  codeLines.push(
+    `LOAD ${dlCase} LOADTYPE Dead  TITLE DL`,
+    stub,
+    `LOAD ${llCase} LOADTYPE Live  TITLE LL`,
+    stub,
+    `LOAD ${lrCase} LOADTYPE Roof Live  TITLE LR`,
+    stub,
+    `LOAD ${wxStart} LOADTYPE Wind  TITLE Wx_1`,
+    stub,
+    `LOAD ${wxStart + 1} LOADTYPE Wind  TITLE Wx_2`,
+    stub,
+    `LOAD ${wxStart + 2} LOADTYPE Wind  TITLE Wz_1`,
+    stub,
+    `LOAD ${wxStart + 3} LOADTYPE Wind  TITLE Wz_2`,
+    stub,
+  )
+
+  // Seismic definition only (DEFINE UBC LOAD) — load cases are in the primary section
+  function generateSeismicDef(): string {
+    return generateSeismicDefinition(seismicDef)
+  }
+
+  // Load combination blocks
+  const caseMap = {
+    dead: dlCase,
+    live: llCase,
+    roof_live: lrCase,
+    seismic_x: eqxCase,
+    seismic_z: eqzCase,
+    wind_x: wxStart,
+    wind_x2: wxStart + 1,
+    wind_z: wxStart + 2,
+    wind_z2: wxStart + 3,
+  }
+  const ultimateCombos = buildNSCPUltimateCombos(caseMap)
+  const allowableCombos = buildNSCPAllowableCombos(caseMap)
+
   codeLines.push(
     '',
-    `LOAD ${dlCase} LOADTYPE Dead TITLE DL`,
-    `SELFWEIGHT Y -${swFactor}`,
     '',
-    `LOAD ${llCase} LOADTYPE Live TITLE LL`,
+    '*****ULTIMATE LOAD COMBINATION*****',
+    generateAllCombinations(ultimateCombos),
     '',
-    `LOAD ${lrCase} LOADTYPE Roof Live TITLE LR`,
     '',
-    `LOAD ${wxStart} LOADTYPE Wind TITLE Wx_1`,
-    '',
-    `LOAD ${wxStart + 1} LOADTYPE Wind TITLE Wx_2`,
-    '',
-    `LOAD ${wxStart + 2} LOADTYPE Wind TITLE Wz_1`,
-    '',
-    `LOAD ${wxStart + 3} LOADTYPE Wind TITLE Wz_2`,
+    '**ALLOWABLE LOAD COMBINATION**',
+    generateAllCombinations(allowableCombos),
   )
+
   const allCode = codeLines.join('\n')
 
   useEffect(() => { setStaadCode(allCode); return () => { setStaadCode('') } }, [allCode])
@@ -217,19 +285,22 @@ export function BasicLoadsPage({
               </div>
               <div className="sub-label" style={{ marginBottom: 6 }}>Seismic Mass (W) — REFERENCE LOAD</div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 11 }}>
-                {Object.entries(massRefs).map(([key, ref]) => (
+                {[
+                  { key: 'DL', refId: 'R1', label: 'Dead (R1)' },
+                  { key: 'LL', refId: 'R2', label: 'Live (R2)' },
+                ].map(({ key, refId, label }) => (
                   <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <input
                       type="checkbox"
-                      checked={ref.on}
+                      checked={massRefs[key].on}
                       onChange={e => setMassRefs(prev => ({ ...prev, [key]: { ...prev[key], on: e.target.checked } }))}
                     />
-                    {key} (Case {massCaseMap[key]}) ×
+                    {label} ×
                     <input
                       className="input"
                       type="number"
                       step={0.05}
-                      value={ref.factor}
+                      value={massRefs[key].factor}
                       onChange={e => setMassRefs(prev => ({ ...prev, [key]: { ...prev[key], factor: Number(e.target.value) } }))}
                       style={{ width: 45, height: 18, fontSize: 10 }}
                     />
