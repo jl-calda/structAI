@@ -15,9 +15,14 @@ import {
   buildNSCPUltimateCombos,
   generateAllCombinations,
   generateReferenceLoadsBlock,
+  generateRefLoadCase,
   generateSeismicDefinition,
+  generateSeismicLoadCase,
+  generateWindDefinition,
+  generateWindLoadCase,
   type ReferenceLoadDef,
   type SeismicDefinition,
+  type WindDefinition,
 } from '@/lib/staad/syntax'
 import { setStaadCode } from '@/lib/stores/staad-code-store'
 import type { CodeStandard } from '@/lib/supabase/types'
@@ -49,6 +54,8 @@ export function BasicLoadsPage({
   const [importance, setImportance] = useState(1.0)
   const [rFactor, setRFactor] = useState(8.5)
   const [frameType, setFrameType] = useState('SMRF')
+  const [na, setNa] = useState(1.0)
+  const [nv, setNv] = useState(1.0)
   const [includeEQxz, setIncludeEQxz] = useState(false)
   const [massRefs, setMassRefs] = useState<Record<string, { on: boolean; factor: number }>>({
     DL: { on: true, factor: 1.0 },
@@ -93,63 +100,75 @@ export function BasicLoadsPage({
     rwx: rFactor,
     rwz: rFactor,
     soilType: SOIL_MAP[soilProfile] ?? 4,
+    na,
+    nv,
     referenceLoads: [],
     namedRefs,
   }
 
-  // Stub: STAAD requires at least one load entry per case
-  const stub = 'JOINT LOAD\n1 FY 0'
+  // Wind pressure at various heights (NSCP 207 simplified)
+  const V_ms = windSpeed / 3.6
+  const Kd = 0.85, Kzt = 1.0, G = 0.85, Iw = importance, Cf = 1.3
+  const windPressure = (Kz: number) => (0.613 * Kz * Kzt * Kd * V_ms * V_ms * G * Cf * Iw) / 1000
 
+  const windDef: WindDefinition = {
+    typeNumber: 1,
+    typeName: `NSCP207_V${windSpeed}_EXP${windExposure}_BLDG`,
+    pressures: [0.85, 0.90, 1.0, 1.05, 1.1, 1.15].map(Kz => +windPressure(Kz).toFixed(3)),
+    heights: [0, 4.6, 6.1, 7.6, 9.1, 10.0],
+  }
+
+  // Build the complete STAAD output
   const codeLines = [
     generateReferenceLoadsBlock(refLoadDefs),
     '',
-    generateSeismicDef(),
+    generateSeismicDefinition(seismicDef),
+    '',
+    generateWindDefinition(windDef),
     '',
     '* ============================================================',
-    `*  LC ${eqxCase}  = EQx   Seismic +X`,
-    `*  LC ${eqzCase}  = EQz   Seismic +Z`,
+    `*  LC ${eqxCase}  = EQX   Seismic +X`,
+    `*  LC ${eqzCase}  = EQZ   Seismic +Z`,
     `*  LC ${dlCase}  = DL    Dead Load`,
     `*  LC ${llCase}  = LL    Floor Live Load`,
-    `*  LC ${lrCase}  = RLL   Roof Live Load`,
-    `*  LC ${wxStart}  = WX+   Wind +X`,
-    `*  LC ${wxStart + 1}  = WX-   Wind -X`,
-    `*  LC ${wxStart + 2}  = WZ+   Wind +Z`,
-    `*  LC ${wxStart + 3}  = WZ-   Wind -Z`,
+    `*  LC ${lrCase}  = LR    Roof Live Load`,
+    `*  LC ${wxStart}  = WX_1  Wind +X`,
+    `*  LC ${wxStart + 1}  = WX_2  Wind -X`,
+    `*  LC ${wxStart + 2}  = WZ_1  Wind +Z`,
+    `*  LC ${wxStart + 3}  = WZ_2  Wind -Z`,
     '* ============================================================',
-    `LOAD ${eqxCase} LOADTYPE Seismic  TITLE Eqx`,
-    stub,
-    `LOAD ${eqzCase} LOADTYPE Seismic  TITLE Eqz`,
-    stub,
+    generateSeismicLoadCase(eqxCase, 'EQX', 'X', isNSCP ? 'UBC' : 'IBC'),
+    '*',
+    generateSeismicLoadCase(eqzCase, 'EQZ', 'Z', isNSCP ? 'UBC' : 'IBC'),
+    '*',
   ]
 
   if (includeEQxz) {
     codeLines.push(
       `LOAD ${eqxzCase} LOADTYPE None  TITLE EQxz`,
-      stub,
+      'REPEAT LOAD',
+      `${eqxCase} 1.0 ${eqzCase} 0.3`,
+      '*',
     )
   }
 
   codeLines.push(
-    `LOAD ${dlCase} LOADTYPE Dead  TITLE DL`,
-    stub,
-    `LOAD ${llCase} LOADTYPE Live  TITLE LL`,
-    stub,
+    generateRefLoadCase(dlCase, 'Dead', 'DL', 'R1'),
+    '*',
+    generateRefLoadCase(llCase, 'Live', 'LL', 'R2'),
+    '*',
     `LOAD ${lrCase} LOADTYPE Roof Live  TITLE LR`,
-    stub,
-    `LOAD ${wxStart} LOADTYPE Wind  TITLE Wx_1`,
-    stub,
-    `LOAD ${wxStart + 1} LOADTYPE Wind  TITLE Wx_2`,
-    stub,
-    `LOAD ${wxStart + 2} LOADTYPE Wind  TITLE Wz_1`,
-    stub,
-    `LOAD ${wxStart + 3} LOADTYPE Wind  TITLE Wz_2`,
-    stub,
+    'MEMBER LOAD',
+    '* roof members UNI GY -1',
+    '*',
+    generateWindLoadCase({ caseNumber: wxStart, title: 'WX_1', direction: 'X', factor: 1, typeNumber: 1, xRange: [0, 6], yRange: [0, 10], zRange: [0, 4] }),
+    '*',
+    generateWindLoadCase({ caseNumber: wxStart + 1, title: 'WX_2', direction: 'X', factor: -1, typeNumber: 1, xRange: [0, 6], yRange: [0, 10], zRange: [0, 4] }),
+    '*',
+    generateWindLoadCase({ caseNumber: wxStart + 2, title: 'WZ_1', direction: 'Z', factor: 1, typeNumber: 1, xRange: [0, 6], yRange: [0, 10], zRange: [0, 4] }),
+    '*',
+    generateWindLoadCase({ caseNumber: wxStart + 3, title: 'WZ_2', direction: 'Z', factor: -1, typeNumber: 1, xRange: [0, 6], yRange: [0, 10], zRange: [0, 4] }),
   )
-
-  // Seismic definition only (DEFINE UBC LOAD) — load cases are in the primary section
-  function generateSeismicDef(): string {
-    return generateSeismicDefinition(seismicDef)
-  }
 
   // Load combination blocks
   const caseMap = {
@@ -261,13 +280,15 @@ export function BasicLoadsPage({
                 <PropCalcRow label="Z" value={Z.toFixed(2)} unit="—" formula="zone factor" expr={`Zone ${seismicZone.replace('Zone_', '')}`} />
                 <PropSelectRow label="Soil" value={soilProfile} opts={['SA', 'SB', 'SC', 'SD', 'SE', 'SF']} onChange={setSoilProfile} />
                 <PropInputRow label="I" unit="—" value={importance} onChange={setImportance} desc="importance factor" />
+                <PropInputRow label="Na" unit="—" value={na} onChange={setNa} desc="near-source accel (1.0 if ≥10km)" />
+                <PropInputRow label="Nv" unit="—" value={nv} onChange={setNv} desc="near-source velocity (1.0 if ≥10km)" />
               </PropGroup>
               <PropGroup title="5.2 · Frame & Coefficients" border>
                 <PropSelectRow label="Frame" value={frameType} opts={['SMRF', 'IMRF', 'OMRF', 'Dual', 'Shear Wall']} onChange={setFrameType} />
-                <PropInputRow label="R" unit="—" value={rFactor} onChange={setRFactor} desc="response modification" />
-                <PropCalcRow label="Cv" value={Cv.toFixed(3)} unit="—" formula="Cv = Z · Nv · Fa" expr={`≈ ${Z} × 1.2`} />
-                <PropCalcRow label="Ca" value={Ca.toFixed(3)} unit="—" formula="Ca = Z · Na · Fa" expr={`≈ ${Z} × 1.0`} />
-                <PropCalcRow label="Cs" value={Cs} unit="—" formula="Cs = Cv / (R·T)" expr={`= ${Cv.toFixed(3)} / ${rFactor}`} />
+                <PropInputRow label="R" unit="—" value={rFactor} onChange={setRFactor} desc="response modification (Table 208-11)" />
+                <PropCalcRow label="Cv" value={Cv.toFixed(3)} unit="—" formula="Cv = Z · Nv · Fa" expr={`= ${Z} × ${nv} × Fa`} />
+                <PropCalcRow label="Ca" value={Ca.toFixed(3)} unit="—" formula="Ca = Z · Na · Fa" expr={`= ${Z} × ${na} × Fa`} />
+                <PropCalcRow label="Cs" value={Cs} unit="—" formula="Cs = Cv·I / (R·T)" expr={`= ${Cv.toFixed(3)} / ${rFactor}`} />
                 <PropCalcRow label="Cs min" value={CsMin} unit="—" formula="0.11 · Ca · I" expr={`= 0.11 · ${Ca.toFixed(3)} · ${importance}`} />
                 <PropStaticRow label="Factor" value="1.0" desc="E enters combos at 1.0E" />
               </PropGroup>

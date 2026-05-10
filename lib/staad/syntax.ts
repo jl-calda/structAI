@@ -51,6 +51,44 @@ export type ComboInput = {
 }
 
 // ---------------------------------------------------------------------------
+// Wind definition
+// ---------------------------------------------------------------------------
+
+export type WindDefinition = {
+  typeNumber: number
+  typeName: string
+  pressures: number[]
+  heights: number[]
+}
+
+export function generateWindDefinition(wind: WindDefinition): string {
+  const lines: string[] = ['DEFINE WIND LOAD']
+  lines.push(`TYPE ${wind.typeNumber} ${wind.typeName}`)
+  const intStr = wind.pressures.map(p => p.toFixed(3)).join(' ')
+  const heigStr = wind.heights.map(h => h.toFixed(1)).join(' ')
+  lines.push(`INT ${intStr} HEIG ${heigStr}`)
+  return lines.join('\n')
+}
+
+export type WindLoadCase = {
+  caseNumber: number
+  title: string
+  direction: 'X' | 'Z'
+  factor: 1 | -1
+  typeNumber: number
+  xRange: [number, number]
+  yRange: [number, number]
+  zRange: [number, number]
+}
+
+export function generateWindLoadCase(wlc: WindLoadCase): string {
+  const lines: string[] = []
+  lines.push(`LOAD ${wlc.caseNumber} LOADTYPE Wind  TITLE ${wlc.title}`)
+  lines.push(`WIND LOAD ${wlc.direction} ${wlc.factor} TYPE ${wlc.typeNumber} XR ${wlc.xRange[0]} ${wlc.xRange[1]} YR ${wlc.yRange[0]} ${wlc.yRange[1]} ZR ${wlc.zRange[0]} ${wlc.zRange[1]}`)
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // STAAD LOADTYPE keyword mapping
 // ---------------------------------------------------------------------------
 
@@ -90,7 +128,7 @@ export function generateReferenceLoadsBlock(refs: ReferenceLoadDef[]): string {
     lines.push(`LOAD ${ref.id} LOADTYPE ${ref.loadType}  TITLE ${ref.title}`)
 
     if (ref.selfWeight) {
-      lines.push(`SELFWEIGHT Y -${ref.selfWeight.factor} LIST ALL`)
+      lines.push(`SELFWEIGHT Y -${ref.selfWeight.factor}`)
     }
 
     if (ref.memberLoads && ref.memberLoads.length > 0) {
@@ -332,6 +370,10 @@ export type SeismicDefinition = {
   rwx: number
   rwz: number
   soilType: number
+  /** Near-source acceleration factor (Na). Default 1.0 if ≥10km from fault. */
+  na?: number
+  /** Near-source velocity factor (Nv). Default 1.0 if ≥10km from fault. */
+  nv?: number
   sds?: number
   sd1?: number
   s1?: number
@@ -348,8 +390,9 @@ export function generateSeismicDefinition(def: SeismicDefinition): string {
 
   if (def.code === 'UBC_1997') {
     lines.push('DEFINE UBC LOAD')
-    lines.push(`ZONE ${def.zone ?? 0.4} I ${def.importance} RWX ${def.rwx} RWZ ${def.rwz}`)
-    lines.push(`STYP ${def.soilType}`)
+    const naStr = def.na != null ? ` NA ${def.na}` : ''
+    const nvStr = def.nv != null ? ` NV ${def.nv}` : ''
+    lines.push(`ZONE ${def.zone ?? 0.4} I ${def.importance} RWX ${def.rwx} RWZ ${def.rwz} STYP ${def.soilType}${naStr}${nvStr}`)
   } else {
     lines.push('DEFINE IBC 2006 LOAD')
     lines.push(`SDS ${def.sds ?? 1.0} SD1 ${def.sd1 ?? 0.6} S1 ${def.s1 ?? 0.4} IE ${def.importance}`)
