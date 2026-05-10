@@ -10,6 +10,13 @@ import type { Database } from '@/lib/supabase/types'
 export type SyncRow = Database['public']['Tables']['staad_syncs']['Row']
 export type MemberRow = Database['public']['Tables']['staad_members']['Row']
 export type NodeRow = Database['public']['Tables']['staad_nodes']['Row']
+export type SectionRow = Database['public']['Tables']['staad_sections']['Row']
+export type MaterialRow = Database['public']['Tables']['staad_materials']['Row']
+export type LoadCaseRow = Database['public']['Tables']['staad_load_cases']['Row']
+export type CombinationRow = Database['public']['Tables']['staad_combinations']['Row']
+export type EnvelopeRow = Database['public']['Tables']['staad_envelope']['Row']
+export type ReactionRow = Database['public']['Tables']['staad_reactions']['Row']
+export type DiagramPointRow = Database['public']['Tables']['staad_diagram_points']['Row']
 
 export type SyncStatusKind = 'green' | 'amber' | 'red' | 'none'
 
@@ -59,6 +66,73 @@ export async function listNodes(projectId: string): Promise<NodeRow[]> {
     .eq('project_id', projectId)
     .order('node_id', { ascending: true })
   if (error) throw new Error(`listNodes: ${error.message}`)
+  return data ?? []
+}
+
+export async function listSections(projectId: string): Promise<SectionRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_sections')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('section_name', { ascending: true })
+  if (error) throw new Error(`listSections: ${error.message}`)
+  return data ?? []
+}
+
+export async function listMaterials(projectId: string): Promise<MaterialRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_materials')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('name', { ascending: true })
+  if (error) throw new Error(`listMaterials: ${error.message}`)
+  return data ?? []
+}
+
+export async function listLoadCases(projectId: string): Promise<LoadCaseRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_load_cases')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('case_number', { ascending: true })
+  if (error) throw new Error(`listLoadCases: ${error.message}`)
+  return data ?? []
+}
+
+export async function listCombinations(projectId: string): Promise<CombinationRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_combinations')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('combo_number', { ascending: true })
+  if (error) throw new Error(`listCombinations: ${error.message}`)
+  return data ?? []
+}
+
+export async function listEnvelope(projectId: string): Promise<EnvelopeRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_envelope')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('member_id', { ascending: true })
+  if (error) throw new Error(`listEnvelope: ${error.message}`)
+  return data ?? []
+}
+
+export async function listReactions(projectId: string): Promise<ReactionRow[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('staad_reactions')
+    .select('*')
+    .eq('project_id', projectId)
+    .order('node_id', { ascending: true })
+    .order('combo_number', { ascending: true })
+  if (error) throw new Error(`listReactions: ${error.message}`)
   return data ?? []
 }
 

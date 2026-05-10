@@ -5,10 +5,21 @@
  */
 import { SyncBanner } from '@/components/layout/SyncBanner'
 import { FrameViewer, type MemberAssignment } from '@/components/staad/FrameViewer'
+import { StaadDataView } from '@/components/staad/StaadDataView'
 import { listBeamDesigns } from '@/lib/data/beams'
 import { listColumnDesigns } from '@/lib/data/columns'
 import { getProject } from '@/lib/data/projects'
-import { getLatestSync, listMembers, listNodes } from '@/lib/data/staad'
+import {
+  getLatestSync,
+  listCombinations,
+  listEnvelope,
+  listLoadCases,
+  listMaterials,
+  listMembers,
+  listNodes,
+  listReactions,
+  listSections,
+} from '@/lib/data/staad'
 import { notFound } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
@@ -22,12 +33,21 @@ export default async function OverviewPage({
   const project = await getProject(id)
   if (!project) notFound()
 
-  const [latest, members, nodes, beamDesigns, columnDesigns] = await Promise.all([
+  const [
+    latest, members, nodes, beamDesigns, columnDesigns,
+    sections, materials, loadCases, combinations, envelope, reactions,
+  ] = await Promise.all([
     getLatestSync(id),
     listMembers(id),
     listNodes(id),
     listBeamDesigns(id),
     listColumnDesigns(id),
+    listSections(id),
+    listMaterials(id),
+    listLoadCases(id),
+    listCombinations(id),
+    listEnvelope(id),
+    listReactions(id),
   ])
 
   const beamCount = members.filter((m) => m.member_type === 'beam').length
@@ -109,6 +129,25 @@ export default async function OverviewPage({
             </div>
           </div>
         </div>
+      </section>
+
+      <section>
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <h2 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>STAAD Cached Data</h2>
+          <span className="mono" style={{ fontSize: 10.5, color: 'var(--color-ink-4)' }}>
+            everything synced from STAAD · sourced from Supabase Object 1 tables
+          </span>
+        </div>
+        <StaadDataView
+          nodes={nodes}
+          members={members}
+          sections={sections}
+          materials={materials}
+          loadCases={loadCases}
+          combinations={combinations}
+          envelope={envelope}
+          reactions={reactions}
+        />
       </section>
     </div>
   )
