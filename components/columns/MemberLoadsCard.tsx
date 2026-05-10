@@ -62,6 +62,10 @@ export function ColumnMemberLoadsCard({
   const [manualVu, setManualVu] = useState(0)
   const [manualHeight, setManualHeight] = useState(3000)
 
+  const [comboRanges, setComboRanges] = useState<{ from: number; to: number }[]>([
+    { from: 100, to: 124 },
+  ])
+
   const [searchSection, setSearchSection] = useState('')
   const [searchResults, setSearchResults] = useState<MemberInfo[]>([])
   const [searching, setSearching] = useState(false)
@@ -75,11 +79,17 @@ export function ColumnMemberLoadsCard({
       .catch(() => setBridgeOnline(false))
   }, [])
 
+  const comboQueryStr = comboRanges
+    .filter(r => r.from > 0 && r.to >= r.from)
+    .map(r => `${r.from}-${r.to}`)
+    .join(',')
+
   const fetchForcesCached = useCallback(async (inst: InstanceData) => {
     if (inst.memberIds.length === 0) return
     setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, loading: true } : i))
     try {
-      const res = await fetch(`/api/design/member-forces?projectId=${projectId}&memberIds=${inst.memberIds.join(',')}`)
+      const comboParam = comboQueryStr ? `&combos=${comboQueryStr}` : ''
+      const res = await fetch(`/api/design/member-forces?projectId=${projectId}&memberIds=${inst.memberIds.join(',')}${comboParam}`)
       const json = await res.json()
       if (json.ok) {
         const d = json.data
@@ -244,6 +254,36 @@ export function ColumnMemberLoadsCard({
         </div>
       ) : (
         <div>
+          {/* Combo range filter */}
+          <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9.5, color: 'var(--color-ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, minWidth: 80 }}>
+              Combo filter
+            </span>
+            {comboRanges.map((r, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                {i > 0 && <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>,</span>}
+                <input className="input" type="number" value={r.from}
+                  onChange={e => setComboRanges(prev => prev.map((rr, j) => j === i ? { ...rr, from: Number(e.target.value) || 0 } : rr))}
+                  style={{ width: 50, height: 20, fontSize: 10.5, textAlign: 'center' }} />
+                <span style={{ color: 'var(--color-ink-4)', fontSize: 10 }}>–</span>
+                <input className="input" type="number" value={r.to}
+                  onChange={e => setComboRanges(prev => prev.map((rr, j) => j === i ? { ...rr, to: Number(e.target.value) || 0 } : rr))}
+                  style={{ width: 50, height: 20, fontSize: 10.5, textAlign: 'center' }} />
+                {comboRanges.length > 1 && (
+                  <button type="button" onClick={() => setComboRanges(prev => prev.filter((_, j) => j !== i))}
+                    style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 12, padding: 0 }}>×</button>
+                )}
+              </div>
+            ))}
+            <button type="button" onClick={() => setComboRanges(prev => [...prev, { from: 0, to: 0 }])}
+              className="btn sm" style={{ height: 20, fontSize: 9, padding: '0 6px' }}>
+              <Icon name="plus" size={8} /> Range
+            </button>
+            <span className="mono" style={{ fontSize: 9, color: 'var(--color-ink-4)', marginLeft: 4 }}>
+              {comboQueryStr ? `LC ${comboQueryStr}` : 'all combos'}
+            </span>
+          </div>
+
           {mode === 'live' && (
             <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--color-line-2)', background: 'var(--color-bg)', display: 'flex', gap: 8, alignItems: 'center' }}>
               <Icon name="search" size={11} />
