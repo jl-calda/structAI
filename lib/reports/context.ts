@@ -40,6 +40,25 @@ export type ProjectSnapshot = {
     largest_dia_mm: number
     rows: MtoLine[]
   }
+  designBasis?: {
+    fc_mpa: number
+    fy_mpa: number
+    fys_mpa: number
+    cover_mm: number
+    density_kn_m3: number
+    seismicZone?: string
+    soilProfile?: string
+    importance?: number
+    rFactor?: number
+    windSpeed?: number
+  }
+  loadCases?: { case_number: number; title: string; load_type: string }[]
+  combinations?: { combo_number: number; title: string }[]
+  staadNodes?: { node_id: number; x_mm: number; y_mm: number; z_mm: number; support_type: string | null }[]
+  staadMembers?: { member_id: number; start_node_id: number; end_node_id: number; section_name: string; length_mm: number; member_type: string }[]
+  staadEnvelope?: { member_id: number; mpos_max_knm: number; mneg_max_knm: number; vu_max_kn: number }[]
+  concreteSummary?: { element: string; label: string; volume_m3: number }[]
+  formworkSummary?: { element: string; label: string; area_m2: number }[]
 }
 
 export type ElementSummary = {
@@ -95,29 +114,37 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
   if (projectResp.error) throw new Error(`project: ${projectResp.error.message}`)
   if (!projectResp.data) return null
 
-  const [latestSync, beams, beamChecks, columns, columnChecks, slabs, slabChecks, footings, footingChecks, mto] =
-    await Promise.all([
-      supabase
-        .from('staad_syncs')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('synced_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase.from('beam_designs').select('*').eq('project_id', projectId).order('label'),
-      supabase.from('beam_checks').select('*'),
-      supabase.from('column_designs').select('*').eq('project_id', projectId).order('label'),
-      supabase.from('column_checks').select('*'),
-      supabase.from('slab_designs').select('*').eq('project_id', projectId).order('label'),
-      supabase.from('slab_checks').select('*'),
-      supabase.from('footing_designs').select('*').eq('project_id', projectId).order('label'),
-      supabase.from('footing_checks').select('*'),
-      supabase
-        .from('material_takeoff_items')
-        .select('bar_dia_mm,bar_mark,element_label,total_length_m,weight_kg')
-        .eq('project_id', projectId)
-        .order('bar_dia_mm'),
-    ])
+  const [
+    latestSync, beams, beamChecks, columns, columnChecks,
+    slabs, slabChecks, footings, footingChecks, mto,
+    loadCasesRes, combosRes, nodesRes, membersRes, envelopeRes,
+  ] = await Promise.all([
+    supabase
+      .from('staad_syncs')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('synced_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from('beam_designs').select('*').eq('project_id', projectId).order('label'),
+    supabase.from('beam_checks').select('*'),
+    supabase.from('column_designs').select('*').eq('project_id', projectId).order('label'),
+    supabase.from('column_checks').select('*'),
+    supabase.from('slab_designs').select('*').eq('project_id', projectId).order('label'),
+    supabase.from('slab_checks').select('*'),
+    supabase.from('footing_designs').select('*').eq('project_id', projectId).order('label'),
+    supabase.from('footing_checks').select('*'),
+    supabase
+      .from('material_takeoff_items')
+      .select('bar_dia_mm,bar_mark,element_label,total_length_m,weight_kg')
+      .eq('project_id', projectId)
+      .order('bar_dia_mm'),
+    supabase.from('staad_load_cases').select('case_number,title,load_type').eq('project_id', projectId).order('case_number'),
+    supabase.from('staad_combinations').select('combo_number,title').eq('project_id', projectId).order('combo_number'),
+    supabase.from('staad_nodes').select('node_id,x_mm,y_mm,z_mm,support_type').eq('project_id', projectId).order('node_id').limit(200),
+    supabase.from('staad_members').select('member_id,start_node_id,end_node_id,section_name,length_mm,member_type').eq('project_id', projectId).order('member_id').limit(200),
+    supabase.from('staad_envelope').select('member_id,mpos_max_knm,mneg_max_knm,vu_max_kn').eq('project_id', projectId).order('member_id').limit(200),
+  ])
 
   const beamCheckById = new Map(
     (beamChecks.data ?? []).map((c) => [c.beam_design_id, c]),
@@ -196,6 +223,35 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
   const total_weight_kg = mtoRows.reduce((s, r) => s + r.weight_kg, 0)
   const largest_dia_mm = mtoRows.reduce((m, r) => Math.max(m, r.bar_dia_mm), 0)
 
+  // Concrete volume + formwork area summaries
+  const concreteSummary: ProjectSnapshot['concreteSummary'] = []
+  const formworkSummary: ProjectSnapshot['formworkSummary'] = []
+
+  for (const b of (beams.data ?? [])) {
+    const vol = (b.b_mm * b.h_mm * b.total_span_mm) / 1e9
+    const fw = 2 * (b.b_mm + b.h_mm) * b.total_span_mm / 1e6
+    concreteSummary.push({ element: 'Beam', label: b.label, volume_m3: vol })
+    formworkSummary.push({ element: 'Beam', label: b.label, area_m2: fw })
+  }
+  for (const c of (columns.data ?? [])) {
+    const vol = (c.b_mm * c.h_mm * c.height_mm) / 1e9
+    const fw = 2 * (c.b_mm + c.h_mm) * c.height_mm / 1e6
+    concreteSummary.push({ element: 'Column', label: c.label, volume_m3: vol })
+    formworkSummary.push({ element: 'Column', label: c.label, area_m2: fw })
+  }
+  for (const s of (slabs.data ?? [])) {
+    const vol = (s.span_x_mm * s.span_y_mm * s.thickness_mm) / 1e9
+    const fw = (s.span_x_mm * s.span_y_mm) / 1e6
+    concreteSummary.push({ element: 'Slab', label: s.label, volume_m3: vol })
+    formworkSummary.push({ element: 'Slab', label: s.label, area_m2: fw })
+  }
+  for (const f of (footings.data ?? [])) {
+    const vol = (f.length_x_mm * f.width_y_mm * f.depth_mm) / 1e9
+    const fw = 2 * (f.length_x_mm + f.width_y_mm) * f.depth_mm / 1e6
+    concreteSummary.push({ element: 'Footing', label: f.label, volume_m3: vol })
+    formworkSummary.push({ element: 'Footing', label: f.label, area_m2: fw })
+  }
+
   return {
     project: projectResp.data,
     staad: latestSync.data
@@ -214,5 +270,39 @@ export async function buildProjectSnapshot(projectId: string): Promise<ProjectSn
     slabs: slabSummaries,
     footings: footingSummaries,
     mto: { total_weight_kg, largest_dia_mm, rows: mtoRows },
+    designBasis: {
+      fc_mpa: projectResp.data.default_fc_mpa ?? 28,
+      fy_mpa: projectResp.data.default_fy_mpa ?? 420,
+      fys_mpa: projectResp.data.default_fys_mpa ?? 420,
+      cover_mm: 40,
+      density_kn_m3: projectResp.data.default_density_kn_m3 ?? 24,
+      seismicZone: projectResp.data.seismic_zone ?? undefined,
+    },
+    loadCases: (loadCasesRes.data ?? []).map(lc => ({
+      case_number: lc.case_number,
+      title: lc.title,
+      load_type: lc.load_type,
+    })),
+    combinations: (combosRes.data ?? []).map(c => ({
+      combo_number: c.combo_number,
+      title: c.title,
+    })),
+    staadNodes: nodesRes.data ?? [],
+    staadMembers: (membersRes.data ?? []).map(m => ({
+      member_id: m.member_id,
+      start_node_id: m.start_node_id,
+      end_node_id: m.end_node_id,
+      section_name: m.section_name,
+      length_mm: m.length_mm,
+      member_type: m.member_type,
+    })),
+    staadEnvelope: (envelopeRes.data ?? []).map(e => ({
+      member_id: e.member_id,
+      mpos_max_knm: e.mpos_max_knm,
+      mneg_max_knm: e.mneg_max_knm,
+      vu_max_kn: e.vu_max_kn,
+    })),
+    concreteSummary,
+    formworkSummary,
   }
 }

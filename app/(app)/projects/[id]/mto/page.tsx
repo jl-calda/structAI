@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation'
 
 import { MtoExportBar } from '@/components/mto/MtoExportBar'
 import { Tag } from '@/components/ui/Tag'
+import { listBeamDesigns } from '@/lib/data/beams'
+import { listColumnDesigns } from '@/lib/data/columns'
 import { groupByDia, listMto, summariseMto } from '@/lib/data/mto'
 import { getProject } from '@/lib/data/projects'
 
@@ -16,9 +18,32 @@ export default async function MtoPage({
   const project = await getProject(id)
   if (!project) notFound()
 
-  const rows = await listMto(id)
+  const [rows, beamDesigns, columnDesigns] = await Promise.all([
+    listMto(id),
+    listBeamDesigns(id),
+    listColumnDesigns(id),
+  ])
   const summary = summariseMto(rows)
   const grouped = groupByDia(rows)
+
+  // Concrete volume + formwork area
+  const concreteItems: { type: string; label: string; vol: number; fw: number }[] = []
+  for (const b of beamDesigns) {
+    concreteItems.push({
+      type: 'Beam', label: b.label,
+      vol: (b.b_mm * b.h_mm * b.total_span_mm) / 1e9,
+      fw: 2 * (b.b_mm + b.h_mm) * b.total_span_mm / 1e6,
+    })
+  }
+  for (const c of columnDesigns) {
+    concreteItems.push({
+      type: 'Column', label: c.label,
+      vol: (c.b_mm * c.h_mm * c.height_mm) / 1e9,
+      fw: 2 * (c.b_mm + c.h_mm) * c.height_mm / 1e6,
+    })
+  }
+  const totalConc = concreteItems.reduce((s, i) => s + i.vol, 0)
+  const totalFw = concreteItems.reduce((s, i) => s + i.fw, 0)
 
   return (
     <div className="flex flex-col gap-4">
@@ -55,6 +80,50 @@ export default async function MtoPage({
           }
         />
       </section>
+
+      {/* Concrete + formwork summary */}
+      {concreteItems.length > 0 && (
+        <section className="grid grid-cols-2 gap-3">
+          <StatCard label="Total concrete" value={`${totalConc.toFixed(2)} m³`} tone="blue" bold />
+          <StatCard label="Total formwork" value={`${totalFw.toFixed(1)} m²`} tone="amber" />
+        </section>
+      )}
+
+      {concreteItems.length > 0 && (
+        <section className="card">
+          <div className="ch">
+            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--color-text2)' }}>
+              Concrete &amp; Formwork Summary
+            </span>
+          </div>
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Label</th>
+                <th style={{ textAlign: 'right' }}>Volume (m³)</th>
+                <th style={{ textAlign: 'right' }}>Formwork (m²)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {concreteItems.map((item, i) => (
+                <tr key={`${item.type}-${item.label}-${i}`}>
+                  <td style={{ color: 'var(--color-text2)' }}>{item.type}</td>
+                  <td className="mono font-semibold">{item.label}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{item.vol.toFixed(3)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{item.fw.toFixed(2)}</td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 600, borderTop: '2px solid var(--color-border)' }}>
+                <td colSpan={2}>TOTAL</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{totalConc.toFixed(3)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{totalFw.toFixed(2)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <section className="card">
         <div className="ch">
