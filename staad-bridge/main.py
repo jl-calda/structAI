@@ -110,10 +110,14 @@ def _sync_blocking(state: BridgeState) -> None:
         if result.ok:
             state.last_hash = payload.file_hash
             state.last_error = None
+            unit_warning = result.data.get("unit_warning") if result.data else None
+            if unit_warning:
+                logger.warning("UNIT WARNING: %s", unit_warning)
             logger.info(
-                "sync ok: file=%s hash=%s counts=%s",
+                "sync ok: file=%s hash=%s units=%s counts=%s",
                 payload.file_name,
                 payload.file_hash[:8],
+                result.data.get("unit_system", "?") if result.data else "?",
                 result.data.get("counts") if result.data else "?",
             )
         else:
