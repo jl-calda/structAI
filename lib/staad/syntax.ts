@@ -70,6 +70,79 @@ export function staadLoadType(loadType: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Reference Loads — reusable load patterns referenced by primary cases and seismic mass
+// ---------------------------------------------------------------------------
+
+export type ReferenceLoadDef = {
+  id: string
+  loadType: string
+  title: string
+  selfWeight?: { factor: number }
+  memberLoads?: MemberLoad[]
+  floorLoads?: FloorLoad[]
+}
+
+export function generateReferenceLoadsBlock(refs: ReferenceLoadDef[]): string {
+  if (refs.length === 0) return ''
+  const lines: string[] = ['DEFINE REFERENCE LOADS']
+
+  for (const ref of refs) {
+    lines.push(`LOAD ${ref.id} LOADTYPE ${ref.loadType}  TITLE ${ref.title}`)
+
+    if (ref.selfWeight) {
+      lines.push(`SELFWEIGHT Y -${ref.selfWeight.factor} LIST ALL`)
+    }
+
+    if (ref.memberLoads && ref.memberLoads.length > 0) {
+      lines.push('MEMBER LOAD')
+      for (const ml of ref.memberLoads) {
+        if (ml.type === 'UNI') {
+          const w = ml.w < 0 ? ml.w : -ml.w
+          lines.push(`${ml.memberId} UNI ${ml.dir} ${w}`)
+        } else if (ml.type === 'CON') {
+          const p = ml.p < 0 ? ml.p : -ml.p
+          lines.push(`${ml.memberId} CON ${ml.dir} ${p} ${ml.d}`)
+        }
+      }
+    }
+
+    if (ref.floorLoads && ref.floorLoads.length > 0) {
+      lines.push('FLOOR LOAD')
+      for (const fl of ref.floorLoads) {
+        const p = -(Math.abs(fl.pressure_kpa))
+        const oneWay = fl.distribution === 'oneway_x' ? ' ONEWAY X' : fl.distribution === 'oneway_z' ? ' ONEWAY Z' : ''
+        if (fl.method === 'yrange' && fl.yLevel != null) {
+          lines.push(`YRANGE ${fl.yLevel.toFixed(3)} ${fl.yLevel.toFixed(3)} FLOAD ${p} GY${oneWay}`)
+        } else if (fl.method === 'members' && fl.memberIds && fl.memberIds.length > 0) {
+          lines.push(`${fl.memberIds.join(' ')} FLOAD ${p} GY${oneWay}`)
+        }
+      }
+    }
+  }
+
+  lines.push('END DEFINE REFERENCE LOADS')
+  return lines.join('\n')
+}
+
+/**
+ * Generate a primary load case that references an R-load instead of
+ * defining its own member loads.
+ */
+export function generateRefLoadCase(
+  caseNumber: number,
+  loadType: string,
+  title: string,
+  refId: string,
+  factor = 1.0,
+): string {
+  return [
+    `LOAD ${caseNumber} LOADTYPE ${loadType}  TITLE ${title}`,
+    'REFERENCE LOAD',
+    `${refId} ${factor}`,
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Primary load case block
 // ---------------------------------------------------------------------------
 
@@ -249,6 +322,9 @@ export function buildNSCPUltimateCombos(cm: CaseMap, rho = 1): ComboInput[] {
 
 export type SeismicRefLoad = { caseNumber: number; factor: number }
 
+/** Named reference load for seismic mass (e.g. R1 1.0, R2 0.2) */
+export type SeismicRefLoadNamed = { refId: string; factor: number }
+
 export type SeismicDefinition = {
   code: 'UBC_1997' | 'IBC_2006'
   zone?: number
@@ -261,7 +337,10 @@ export type SeismicDefinition = {
   s1?: number
   sclass?: number
   ct?: number
+  /** Legacy: reference by primary case number */
   referenceLoads: SeismicRefLoad[]
+  /** Preferred: reference by R-load name (R1, R2, etc.) */
+  namedRefs?: SeismicRefLoadNamed[]
 }
 
 export function generateSeismicDefinition(def: SeismicDefinition): string {
@@ -277,7 +356,12 @@ export function generateSeismicDefinition(def: SeismicDefinition): string {
     lines.push(`RX ${def.rwx} RZ ${def.rwz} SCLASS ${def.sclass ?? 4} CT ${def.ct ?? 0.016}`)
   }
 
-  if (def.referenceLoads.length > 0) {
+  // Prefer named R-load references (R1 1.0 R2 0.2) over legacy case-number references
+  if (def.namedRefs && def.namedRefs.length > 0) {
+    lines.push('REFERENCE LOAD Y')
+    const parts = def.namedRefs.map(r => `${r.refId} ${r.factor}`).join(' ')
+    lines.push(parts)
+  } else if (def.referenceLoads.length > 0) {
     lines.push('REFERENCE LOAD')
     const parts = def.referenceLoads.map(r => `${r.caseNumber} ${r.factor}`).join(' ')
     lines.push(`R ${parts}`)
