@@ -354,6 +354,8 @@ export function BeamMemberLoadsCard({
                       available={beamMembers}
                       selected={inst.memberIds}
                       onChange={ids => updateMemberIds(inst.id, ids)}
+                      projectId={projectId}
+                      bridgeOnline={bridgeOnline}
                     />
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
@@ -415,12 +417,34 @@ function MemberPicker({
   available,
   selected,
   onChange,
+  projectId,
+  bridgeOnline,
 }: {
   available: MemberInfo[]
   selected: number[]
   onChange: (ids: number[]) => void
+  projectId: string
+  bridgeOnline: boolean | null
 }) {
   const [open, setOpen] = useState(false)
+  const [fetching, setFetching] = useState(false)
+
+  const getHighlighted = async () => {
+    setFetching(true)
+    try {
+      const res = await fetch('/api/bridge/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'selected', project_id: projectId }),
+      })
+      const json = await res.json()
+      if (json.ok && json.members?.length > 0) {
+        const ids = json.members.map((m: MemberInfo) => m.member_id)
+        onChange([...new Set([...selected, ...ids])])
+      }
+    } catch { /* bridge offline */ }
+    setFetching(false)
+  }
   const [filter, setFilter] = useState('')
   const [inputVal, setInputVal] = useState('')
 
@@ -474,6 +498,13 @@ function MemberPicker({
         className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px' }}>
         <Icon name="plus" size={8} /> Choose members
       </button>
+
+      {bridgeOnline && (
+        <button type="button" onClick={getHighlighted} disabled={fetching}
+          className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px', background: 'var(--color-sel-bg, #E8F0FA)', borderColor: 'var(--color-sel, #2563AB)', color: 'var(--color-sel, #2563AB)' }}>
+          {fetching ? '…' : <><Icon name="sync" size={8} /> Get highlighted</>}
+        </button>
+      )}
 
       <input
         className="input"

@@ -269,6 +269,65 @@ def query_member_forces(
             pass
 
 
+def query_selected_members(file_path: Optional[Path]) -> List[Dict[str, Any]]:
+    """Return members currently highlighted/selected in the STAAD GUI."""
+    try:
+        import pythoncom
+        import win32com.client
+        pythoncom.CoInitialize()
+    except ImportError:
+        raise StaadError("win32com unavailable")
+
+    try:
+        staad = _open_staad(file_path)
+        geo = staad.Geometry
+        view = staad.View
+
+        _flag_methods(geo, ["GetMemberCount", "GetBeamLength", "GetMemberIncidence"])
+        _flag_methods(view, ["GetSelectedBeams", "GetSelectedBeamCount", "SelectAllBeams"])
+
+        # Try multiple approaches — OpenSTAAD selection API varies by version
+        selected_ids: List[int] = []
+
+        # Approach 1: GetSelectedBeams (V22 CONNECT)
+        try:
+            count = int(view.GetSelectedBeamCount())
+            if count > 0:
+                import win32com.client as w32
+                import pythoncom as pc
+                sa = w32.VARIANT(pc.VT_ARRAY | pc.VT_I4, [0] * count)
+                arr = w32.VARIANT(pc.VT_BYREF | pc.VT_I4, sa)
+                view.GetSelectedBeams(arr)
+                selected_ids = [int(x) for x in list(arr.value) if int(x) > 0]
+        except Exception:
+            pass
+
+        # Approach 2: iterate and check IsBeamSelected
+        if not selected_ids:
+            try:
+                n_members = _com_int(geo, "GetMemberCount")
+                for mid in range(1, n_members + 1):
+                    try:
+                        sel = view.IsBeamSelected(mid)
+                        if sel and int(_unwrap(sel)) != 0:
+                            selected_ids.append(mid)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+
+        if not selected_ids:
+            return []
+
+        return query_members(file_path, selected_ids)
+    finally:
+        try:
+            import pythoncom
+            pythoncom.CoUninitialize()
+        except (ImportError, Exception):
+            pass
+
+
 def _get_node_coords(geo, node_id: int) -> list:
     """Get [x, y, z] coordinates for a node in metres."""
     try:
