@@ -391,8 +391,14 @@ def _flag_output_methods(output_obj) -> None:
     # Per-section forces come from GetIntermediateMemberForcesAtDistance;
     # GetMemberEndForcesAtDistance is not an OpenSTAAD method.
     methods = [
-        "GetIntermediateMemberForcesAtDistance", "GetSupportReactions",
+        "GetIntermediateMemberForcesAtDistance",
+        "GetSupportReactions",
         "GetMemberEndForces",
+        "GetNodeDisplacements",
+        "GetIntermediateDeflectionAtDistance",
+        "GetMinMaxBendingMoment",
+        "GetMinMaxShearForce",
+        "GetMinMaxAxialForce",
     ]
     for name in methods:
         try:
@@ -462,38 +468,25 @@ def _get_member_incidences(geometry, member_id: int) -> tuple:
     GetNodeCoordinates) then VT_I4 then single-arg return.
     """
 
-    # Approach 1: VT_R8 by-ref — matches GetNodeCoordinates which works
+    # Approach 1: VT_I4 by-ref — official OpenStaadPython uses this type
     try:
-        s = _make_variant_double()
-        e = _make_variant_double()
+        s = _make_variant_long()
+        e = _make_variant_long()
         geometry.GetMemberIncidence(member_id, s, e)
-        # Try both .value and [0] access (official lib uses [0])
-        try:
-            si = int(s[0]) if hasattr(s, '__getitem__') else int(_unwrap_float(s))
-        except (TypeError, IndexError):
-            si = int(_unwrap_float(s))
-        try:
-            ei = int(e[0]) if hasattr(e, '__getitem__') else int(_unwrap_float(e))
-        except (TypeError, IndexError):
-            ei = int(_unwrap_float(e))
+        si = _unwrap_int(s)
+        ei = _unwrap_int(e)
         if si > 0 and ei > 0:
             return si, ei
     except Exception:
         pass
 
-    # Approach 2: VT_I4 by-ref (official comtypes pattern uses this)
+    # Approach 2: VT_R8 by-ref — some win32com builds work better with doubles
     try:
-        s = _make_variant_long()
-        e = _make_variant_long()
+        s = _make_variant_double()
+        e = _make_variant_double()
         geometry.GetMemberIncidence(member_id, s, e)
-        try:
-            si = int(s[0]) if hasattr(s, '__getitem__') else _unwrap_int(s)
-        except (TypeError, IndexError):
-            si = _unwrap_int(s)
-        try:
-            ei = int(e[0]) if hasattr(e, '__getitem__') else _unwrap_int(e)
-        except (TypeError, IndexError):
-            ei = _unwrap_int(e)
+        si = int(_unwrap_float(s))
+        ei = int(_unwrap_float(e))
         if si > 0 and ei > 0:
             return si, ei
     except Exception:
@@ -879,26 +872,24 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             for s in range(N_SAMPLES):
                 x_ratio = s / (N_SAMPLES - 1)
                 x_mm = len_mm * x_ratio
+                # GetIntermediateMemberForcesAtDistance is the CORRECT method.
+                # GetMemberEndForcesAtDistance DOES NOT EXIST — it's a ghost
+                # method that silently returns None on all STAAD versions.
+                pd_forces = _make_variant_double_array(6)
                 try:
-                    forces = output.GetMemberEndForcesAtDistance(
-                        mid, combo, x_ratio * len_m, True,
+                    output.GetIntermediateMemberForcesAtDistance(
+                        mid, x_ratio * len_m, combo, pd_forces,
                     )
-                    if forces is None:
-                        fx = fy = fz = mx = my = mz = 0.0
-                    elif hasattr(forces, '__len__') and len(forces) >= 6:
-                        fx = _unwrap_float(forces[0])
-                        fy = _unwrap_float(forces[1])
-                        fz = _unwrap_float(forces[2])
-                        mx = _unwrap_float(forces[3])
-                        my = _unwrap_float(forces[4])
-                        mz = _unwrap_float(forces[5])
-                    else:
-                        fx = fy = fz = mx = my = mz = 0.0
+                    f = _variant_to_list(pd_forces)
+                    if f is None or len(f) < 6:
+                        f = [0.0] * 6
+                    fx, fy, fz, mx, my, mz = f[0], f[1], f[2], f[3], f[4], f[5]
                 except Exception as e:
-                    log.warning("GetMemberEndForces(mid=%d, combo=%d) failed: %s", mid, combo, e)
+                    log.warning(
+                        "GetIntermediateMemberForcesAtDistance(mid=%d, dist=%.3f, lc=%d): %s",
+                        mid, x_ratio * len_m, combo, e,
+                    )
                     fx = fy = fz = mx = my = mz = 0.0
-                void_mx = mx  # suppress unused warning
-                _ = void_mx
                 diagram_points.append(SyncDiagramPoint(
                     member_id=mid,
                     combo_number=combo,
