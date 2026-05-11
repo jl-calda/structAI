@@ -3,6 +3,9 @@ uvicorn[standard]>=0.32
 pydantic>=2.9
 httpx>=0.27
 python-dotenv>=1.0
-# Windows only — comment out the line below when installing on macOS / Linux
-# for mock-mode development.
+# Windows only — the STAAD COM bridge. Comment these out when installing on
+# macOS / Linux for mock-mode development.
+openstaad>=0.0.13; sys_platform == 'win32'
+comtypes>=1.4; sys_platform == 'win32'
+# Kept as a fallback for any residual win32com use; harmless if unused.
 pywin32>=306; sys_platform == 'win32'
