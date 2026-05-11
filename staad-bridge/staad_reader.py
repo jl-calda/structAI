@@ -115,7 +115,7 @@ def _import_openstaad():
     """Import the openstaad library, raising StaadError with a clear
     message if it (or comtypes) isn't available."""
     try:
-        from openstaad import Geometry, Load, Output, Property, Root  # type: ignore
+        from openstaad import Geometry, Load, Output, Properties, Root  # type: ignore
     except Exception as e:  # ImportError, or comtypes init failure on non-Windows
         raise StaadError(
             "The 'openstaad' library is unavailable. Install it with "
@@ -123,7 +123,7 @@ def _import_openstaad():
             "STAAD Pro, or set MOCK_MODE=1 for non-Windows dev. "
             f"Underlying error: {e}"
         ) from e
-    return Geometry, Load, Output, Property, Root
+    return Geometry, Load, Output, Properties, Root
 
 
 def _import_openstaad_tools():
@@ -462,7 +462,7 @@ class _Passthrough:
 def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     log = logging.getLogger("staad-bridge")
 
-    Geometry, Load, Output, Property, Root = _import_openstaad()
+    Geometry, Load, Output, Properties, Root = _import_openstaad()
 
     try:
         root = Root()
@@ -477,10 +477,10 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
         geo = Geometry()
         output = Output()
         load = Load()
-        prop = Property()
+        prop = Properties()
     except Exception as e:
         raise StaadError(
-            "Connected to STAAD but could not create Geometry/Output/Load/Property "
+            "Connected to STAAD but could not create Geometry/Output/Load/Properties "
             f"objects. Underlying error: {e}"
         ) from e
 
