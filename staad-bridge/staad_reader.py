@@ -451,55 +451,39 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
 def _get_member_incidences(geometry, member_id: int) -> tuple:
     """Read (start_node_id, end_node_id) for a member.
 
-    OpenSTAAD V22 CONNECT has inconsistent behavior — some builds return
-    the nodes via by-ref VARIANT params, others return a tuple, and some
-    write to the VARIANT but wrap it in extra layers. We try multiple
-    approaches and unwrap aggressively.
+    Uses the SAME VARIANT by-ref pattern as GetNodeCoordinates (which works).
+    Key insight: use VT_R8 (doubles) not VT_I4 — STAAD COM returns node IDs
+    as doubles in many versions, just like it returns coordinates as doubles.
     """
-    import win32com.client  # type: ignore
-    import pythoncom  # type: ignore
 
-    # Approach 1: by-ref VARIANTs (documented API)
+    # Approach 1: VT_R8 by-ref (matches the working GetNodeCoordinates pattern)
     try:
-        s = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0])
-        e = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0])
-        sv = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, s)
-        ev = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, e)
-        try:
-            geometry.GetMemberIncidence(member_id, sv, ev)
-        except Exception:
-            try:
-                geometry.GetMemberIncidences(member_id, sv, ev)
-            except Exception:
-                pass
-        si = _unwrap_int(sv)
-        ei = _unwrap_int(ev)
+        s = _make_variant_double()
+        e = _make_variant_double()
+        geometry.GetMemberIncidence(member_id, s, e)
+        si = int(_unwrap_float(s))
+        ei = int(_unwrap_float(e))
         if si > 0 and ei > 0:
             return si, ei
     except Exception:
         pass
 
-    # Approach 2: single-arg — some builds return (nodeA, nodeB) directly
+    # Approach 2: VT_I4 by-ref (documented type — may work on some builds)
     try:
-        result = geometry.GetMemberIncidence(member_id)
-        if result is not None:
-            # Could be a tuple, list, or nested VARIANT
-            vals = _unwrap(result)
-            if hasattr(vals, '__len__') and len(vals) >= 2:
-                a, b = int(_unwrap(vals[0])), int(_unwrap(vals[1]))
-                if a > 0 and b > 0:
-                    return a, b
-            elif isinstance(vals, (int, float)) and vals > 0:
-                # Single value — try getting the second via result indexing
-                pass
+        s = _make_variant_long()
+        e = _make_variant_long()
+        geometry.GetMemberIncidence(member_id, s, e)
+        si = _unwrap_int(s)
+        ei = _unwrap_int(e)
+        if si > 0 and ei > 0:
+            return si, ei
     except Exception:
         pass
 
-    # Approach 3: result is a VARIANT wrapping an array
+    # Approach 3: single-arg — some builds return (nodeA, nodeB) directly
     try:
         result = geometry.GetMemberIncidence(member_id)
         if result is not None:
-            # Unwrap all layers
             v = result
             for _ in range(5):
                 if hasattr(v, 'value'):
