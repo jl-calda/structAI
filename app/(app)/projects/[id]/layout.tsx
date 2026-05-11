@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { AssistantPanel } from '@/components/ai/AssistantPanel'
 import { ProjectCommandPalette } from '@/components/shell/ProjectCommandPalette'
+import { MobileNavToggle } from '@/components/shell/MobileNavToggle'
 import { RightInspector } from '@/components/shell/RightInspector'
 import { Sidebar } from '@/components/shell/Sidebar'
 import { TopNav } from '@/components/shell/TopNav'
@@ -41,6 +42,7 @@ export default async function ProjectLayout({
         </main>
       </div>
       <RightInspector />
+      <MobileNavToggle />
       <ProjectCommandPalette projectId={project.id} />
       <AssistantPanel projectId={project.id} />
     </>
