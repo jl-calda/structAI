@@ -391,8 +391,14 @@ def _flag_output_methods(output_obj) -> None:
     # Per-section forces come from GetIntermediateMemberForcesAtDistance;
     # GetMemberEndForcesAtDistance is not an OpenSTAAD method.
     methods = [
-        "GetIntermediateMemberForcesAtDistance", "GetSupportReactions",
+        "GetIntermediateMemberForcesAtDistance",
+        "GetSupportReactions",
         "GetMemberEndForces",
+        "GetNodeDisplacements",
+        "GetIntermediateDeflectionAtDistance",
+        "GetMinMaxBendingMoment",
+        "GetMinMaxShearForce",
+        "GetMinMaxAxialForce",
     ]
     for name in methods:
         try:
@@ -449,26 +455,58 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
 
 
 def _get_member_incidences(geometry, member_id: int) -> tuple:
-    """Read (start_node_id, end_node_id) for a member."""
-    # Attempt 1: VARIANT by-ref.
+    """Read (start_node_id, end_node_id) for a member.
+
+    Confirmed pattern from official OpenStaadPython (github.com/OpenStaad):
+      safe_n1 = make_safe_array_long(1)
+      x = make_variant_vt_ref(safe_n1, VT_I4)
+      geometry.GetMemberIncidence(beam, x, y)
+      return (x[0], y[0])
+
+    Our bridge uses win32com instead of comtypes, so the VARIANT
+    construction differs. We try VT_R8 first (matches working
+    GetNodeCoordinates) then VT_I4 then single-arg return.
+    """
+
+    # Approach 1: VT_I4 by-ref — official OpenStaadPython uses this type
     try:
         s = _make_variant_long()
         e = _make_variant_long()
-        try:
-            geometry.GetMemberIncidence(member_id, s, e)
-        except Exception:
-            geometry.GetMemberIncidences(member_id, s, e)
-        si, ei = _unwrap_int(s), _unwrap_int(e)
-        if si != 0 or ei != 0:
+        geometry.GetMemberIncidence(member_id, s, e)
+        si = _unwrap_int(s)
+        ei = _unwrap_int(e)
+        if si > 0 and ei > 0:
             return si, ei
     except Exception:
         pass
 
-    # Attempt 2: single-arg call.
+    # Approach 2: VT_R8 by-ref — some win32com builds work better with doubles
+    try:
+        s = _make_variant_double()
+        e = _make_variant_double()
+        geometry.GetMemberIncidence(member_id, s, e)
+        si = int(_unwrap_float(s))
+        ei = int(_unwrap_float(e))
+        if si > 0 and ei > 0:
+            return si, ei
+    except Exception:
+        pass
+
+    # Approach 3: single-arg — return value is (nodeA, nodeB)
     try:
         result = geometry.GetMemberIncidence(member_id)
-        if result is not None and hasattr(result, '__len__') and len(result) >= 2:
-            return _unwrap_int(result[0]), _unwrap_int(result[1])
+        if result is not None:
+            v = result
+            for _ in range(5):
+                if hasattr(v, 'value'):
+                    v = v.value
+                elif hasattr(v, '__getitem__') and hasattr(v, '__len__') and len(v) >= 2:
+                    a, b = int(v[0]), int(v[1])
+                    if a > 0 and b > 0:
+                        return a, b
+                    break
+                else:
+                    break
     except Exception:
         pass
 
@@ -610,6 +648,31 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     members: List[SyncMember] = []
     for i in range(1, n_members + 1):
         start_id, end_id = _get_member_incidences(geometry, i)
+        if start_id == 0 and end_id == 0:
+            log.warning("member %d: incidence returned (0,0) — trying alternate approaches", i)
+            # Last-resort: try calling without _FlagAsMethod by using raw getattr
+            try:
+                raw = getattr(geometry, 'GetMemberIncidence')
+                if callable(raw):
+                    r = raw(i)
+                    log.info("member %d: raw call returned %r (type=%s)", i, r, type(r).__name__)
+                    if r is not None:
+                        v = r
+                        for _ in range(5):
+                            if hasattr(v, 'value'):
+                                v = v.value
+                            elif hasattr(v, '__getitem__') and hasattr(v, '__len__'):
+                                if len(v) >= 2:
+                                    start_id = int(v[0]) if v[0] else 0
+                                    end_id = int(v[1]) if v[1] else 0
+                                    log.info("member %d: extracted (%d, %d) from raw", i, start_id, end_id)
+                                break
+                            else:
+                                break
+                else:
+                    log.info("member %d: GetMemberIncidence is a property, value=%r", i, raw)
+            except Exception as ex:
+                log.warning("member %d: last-resort raw call failed: %s", i, ex)
 
         # GetBeamLength is the only length accessor in OpenSTAAD's Geometry
         # class; fall back to Euclidean distance between start/end nodes.
@@ -809,26 +872,24 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
             for s in range(N_SAMPLES):
                 x_ratio = s / (N_SAMPLES - 1)
                 x_mm = len_mm * x_ratio
+                # GetIntermediateMemberForcesAtDistance is the CORRECT method.
+                # GetMemberEndForcesAtDistance DOES NOT EXIST — it's a ghost
+                # method that silently returns None on all STAAD versions.
+                pd_forces = _make_variant_double_array(6)
                 try:
-                    forces = output.GetMemberEndForcesAtDistance(
-                        mid, combo, x_ratio * len_m, True,
+                    output.GetIntermediateMemberForcesAtDistance(
+                        mid, x_ratio * len_m, combo, pd_forces,
                     )
-                    if forces is None:
-                        fx = fy = fz = mx = my = mz = 0.0
-                    elif hasattr(forces, '__len__') and len(forces) >= 6:
-                        fx = _unwrap_float(forces[0])
-                        fy = _unwrap_float(forces[1])
-                        fz = _unwrap_float(forces[2])
-                        mx = _unwrap_float(forces[3])
-                        my = _unwrap_float(forces[4])
-                        mz = _unwrap_float(forces[5])
-                    else:
-                        fx = fy = fz = mx = my = mz = 0.0
+                    f = _variant_to_list(pd_forces)
+                    if f is None or len(f) < 6:
+                        f = [0.0] * 6
+                    fx, fy, fz, mx, my, mz = f[0], f[1], f[2], f[3], f[4], f[5]
                 except Exception as e:
-                    log.warning("GetMemberEndForces(mid=%d, combo=%d) failed: %s", mid, combo, e)
+                    log.warning(
+                        "GetIntermediateMemberForcesAtDistance(mid=%d, dist=%.3f, lc=%d): %s",
+                        mid, x_ratio * len_m, combo, e,
+                    )
                     fx = fy = fz = mx = my = mz = 0.0
-                void_mx = mx  # suppress unused warning
-                _ = void_mx
                 diagram_points.append(SyncDiagramPoint(
                     member_id=mid,
                     combo_number=combo,
@@ -1026,14 +1087,15 @@ def _read_member_release(property_, member_id: int, end: int, log) -> Optional[S
 def _force_com_units(staad, log) -> None:
     """Force STAAD's COM API to use metres + kN.
 
-    OpenSTAAD's internal COM unit is English (inches/lbs) regardless of
-    the .std file's UNIT METER KN line or the GUI's display setting.
-    `SetInputUnitForLength(0)` = metres, `SetInputUnitForForce(0)` = kN.
-    Without this, GetNodeCoordinates() returns inches, GetBeamLength()
-    returns inches, and forces come back in kip — all silently wrong.
+    Unit codes from official OpenStaadPython (github.com/OpenStaad):
 
-    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm
-    Force codes:  0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS
+    Force: 0=Kilopound 1=Pound 2=Kilogram 3=MetricTon 4=Newton
+           5=KiloNewton 6=MegaNewton 7=DecaNewton
+
+    Length: 0=Inch 1=Feet 2=Feet 3=CentiMeter 4=Meter
+            5=MilliMeter 6=DeciMeter 7=KiloMeter
+
+    So for kN + metres: SetInputUnitForForce(5), SetInputUnitForLength(4)
     """
     try:
         try:
@@ -1041,9 +1103,9 @@ def _force_com_units(staad, log) -> None:
             staad._FlagAsMethod("SetInputUnitForForce")
         except Exception:
             pass
-        staad.SetInputUnitForLength(0)  # metres
-        staad.SetInputUnitForForce(0)   # kN
-        log.info("forced COM units: length=metres force=kN")
+        staad.SetInputUnitForLength(4)   # 4 = Meter
+        staad.SetInputUnitForForce(5)    # 5 = KiloNewton
+        log.info("forced COM units: length=Meter(4) force=KiloNewton(5)")
     except Exception as e:
         log.warning("could not force COM units (will detect instead): %s", e)
 
@@ -1051,13 +1113,22 @@ def _force_com_units(staad, log) -> None:
 def _detect_unit_system(staad, log) -> str:
     """Read STAAD's current input units and return a canonical label.
 
-    OpenSTAAD exposes GetInputUnitForForce() and GetInputUnitForLength()
-    on the main object. Force codes: 0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS.
-    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm.
-    We combine them into a human-readable string like "kN-m" or "kip-ft".
+    Unit codes from official OpenStaadPython (github.com/OpenStaad):
+
+    Force: 0=Kilopound 1=Pound 2=Kilogram 3=MetricTon 4=Newton
+           5=KiloNewton 6=MegaNewton 7=DecaNewton
+
+    Length: 0=Inch 1=Feet 2=Feet 3=CentiMeter 4=Meter
+            5=MilliMeter 6=DeciMeter 7=KiloMeter
     """
-    force_labels = {0: "kN", 1: "kip", 2: "kg", 3: "MN", 4: "N", 5: "lbs", 6: "kN"}
-    length_labels = {0: "m", 1: "ft", 2: "mm", 3: "cm", 4: "in", 5: "dm"}
+    force_labels = {
+        0: "klb", 1: "lb", 2: "kg", 3: "mton", 4: "N",
+        5: "kN", 6: "MN", 7: "daN",
+    }
+    length_labels = {
+        0: "in", 1: "ft", 2: "ft", 3: "cm", 4: "m",
+        5: "mm", 6: "dm", 7: "km",
+    }
 
     try:
         force_code = _unwrap_int(_safe_com_call(staad, "GetInputUnitForForce"))
