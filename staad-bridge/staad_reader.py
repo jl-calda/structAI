@@ -1096,14 +1096,15 @@ def _read_member_release(property_, member_id: int, end: int, log) -> Optional[S
 def _force_com_units(staad, log) -> None:
     """Force STAAD's COM API to use metres + kN.
 
-    OpenSTAAD's internal COM unit is English (inches/lbs) regardless of
-    the .std file's UNIT METER KN line or the GUI's display setting.
-    `SetInputUnitForLength(0)` = metres, `SetInputUnitForForce(0)` = kN.
-    Without this, GetNodeCoordinates() returns inches, GetBeamLength()
-    returns inches, and forces come back in kip — all silently wrong.
+    Unit codes from official OpenStaadPython (github.com/OpenStaad):
 
-    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm
-    Force codes:  0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS
+    Force: 0=Kilopound 1=Pound 2=Kilogram 3=MetricTon 4=Newton
+           5=KiloNewton 6=MegaNewton 7=DecaNewton
+
+    Length: 0=Inch 1=Feet 2=Feet 3=CentiMeter 4=Meter
+            5=MilliMeter 6=DeciMeter 7=KiloMeter
+
+    So for kN + metres: SetInputUnitForForce(5), SetInputUnitForLength(4)
     """
     try:
         try:
@@ -1111,9 +1112,9 @@ def _force_com_units(staad, log) -> None:
             staad._FlagAsMethod("SetInputUnitForForce")
         except Exception:
             pass
-        staad.SetInputUnitForLength(0)  # metres
-        staad.SetInputUnitForForce(0)   # kN
-        log.info("forced COM units: length=metres force=kN")
+        staad.SetInputUnitForLength(4)   # 4 = Meter
+        staad.SetInputUnitForForce(5)    # 5 = KiloNewton
+        log.info("forced COM units: length=Meter(4) force=KiloNewton(5)")
     except Exception as e:
         log.warning("could not force COM units (will detect instead): %s", e)
 
@@ -1121,13 +1122,22 @@ def _force_com_units(staad, log) -> None:
 def _detect_unit_system(staad, log) -> str:
     """Read STAAD's current input units and return a canonical label.
 
-    OpenSTAAD exposes GetInputUnitForForce() and GetInputUnitForLength()
-    on the main object. Force codes: 0=kN, 1=kip, 2=kg, 3=MN, 4=N, 5=lbs, 6=KNS.
-    Length codes: 0=m, 1=ft, 2=mm, 3=cm, 4=in, 5=dm.
-    We combine them into a human-readable string like "kN-m" or "kip-ft".
+    Unit codes from official OpenStaadPython (github.com/OpenStaad):
+
+    Force: 0=Kilopound 1=Pound 2=Kilogram 3=MetricTon 4=Newton
+           5=KiloNewton 6=MegaNewton 7=DecaNewton
+
+    Length: 0=Inch 1=Feet 2=Feet 3=CentiMeter 4=Meter
+            5=MilliMeter 6=DeciMeter 7=KiloMeter
     """
-    force_labels = {0: "kN", 1: "kip", 2: "kg", 3: "MN", 4: "N", 5: "lbs", 6: "kN"}
-    length_labels = {0: "m", 1: "ft", 2: "mm", 3: "cm", 4: "in", 5: "dm"}
+    force_labels = {
+        0: "klb", 1: "lb", 2: "kg", 3: "mton", 4: "N",
+        5: "kN", 6: "MN", 7: "daN",
+    }
+    length_labels = {
+        0: "in", 1: "ft", 2: "ft", 3: "cm", 4: "m",
+        5: "mm", 6: "dm", 7: "km",
+    }
 
     try:
         force_code = _unwrap_int(_safe_com_call(staad, "GetInputUnitForForce"))
