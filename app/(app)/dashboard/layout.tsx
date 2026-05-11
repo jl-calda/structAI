@@ -1,3 +1,4 @@
+import { MobileNavToggle } from '@/components/shell/MobileNavToggle'
 import { Sidebar } from '@/components/shell/Sidebar'
 import { TopNav } from '@/components/shell/TopNav'
 
@@ -15,6 +16,7 @@ export default function DashboardLayout({
           {children}
         </main>
       </div>
+      <MobileNavToggle />
     </>
   )
 }
