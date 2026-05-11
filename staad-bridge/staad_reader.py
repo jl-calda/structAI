@@ -199,28 +199,78 @@ class _Units:
         return f"{f}-{l}"
 
 
-def _detect_units(root, log) -> _Units:
-    """Read the model's input units via Root.GetInputUnitForLength / ...ForForce.
+_LEN_CODE_TO_UNIT = {
+    0: "Inch", 1: "Feet", 2: "CentiMeter", 3: "Meter",
+    4: "MilliMeter", 5: "DeciMeter", 6: "KiloMeter",
+}
+_FORCE_CODE_TO_UNIT = {
+    0: "Kilopound", 1: "Pound", 2: "Kilogram", 3: "Metric Ton",
+    4: "Newton", 5: "KiloNewton", 6: "MegaNewton", 7: "DecaNewton",
+}
 
-    The official library returns STRINGS like 'Meter' / 'KiloNewton'.
-    Defaults to Meter / KiloNewton if detection fails.
+
+def _raw_unit_code(root_com, method_name: str, log) -> Optional[int]:
+    """Read a unit code via raw COM with a proper c_long by-ref parameter."""
+    import ctypes
+    try:
+        from comtypes import automation  # type: ignore
+        unit_buf = ctypes.c_long(-1)
+        var = automation.VARIANT()
+        var._.c_void_p = ctypes.addressof(unit_buf)
+        var.vt = automation.VT_I4 | automation.VT_BYREF
+        ret = getattr(root_com, method_name)(var)
+        log.info("raw %s: ret=%r, byref=%d", method_name, ret, unit_buf.value)
+        code = unit_buf.value
+        if code >= 0:
+            return code
+        if isinstance(ret, int) and ret >= 0:
+            return ret
+    except Exception as e:
+        log.warning("raw %s failed: %s", method_name, e)
+    return None
+
+
+def _detect_units(root, log) -> _Units:
+    """Read the model's input units. Uses three strategies:
+    1. Raw COM with proper c_long by-ref (most reliable)
+    2. Official wrapper (may have mapping bugs)
+    3. Defaults to Meter / KiloNewton
     """
     length_unit = "Meter"
     force_unit = "KiloNewton"
-    try:
-        v = root.GetInputUnitForLength()
-        if v:
-            length_unit = str(v).strip()
-    except Exception as e:
-        log.warning("GetInputUnitForLength failed: %s — assuming Meter", e)
-    try:
-        v = root.GetInputUnitForForce()
-        if v:
-            force_unit = str(v).strip()
-    except Exception as e:
-        log.warning("GetInputUnitForForce failed: %s — assuming KiloNewton", e)
 
-    # Normalise a few aliases STAAD sometimes uses.
+    root_com = _com_obj(root)
+
+    # Strategy 1: raw COM by-ref (bypasses the openstaad wrapper's mapping bug
+    # where code 2 maps to 'Feet' instead of 'CentiMeter').
+    raw_len = _raw_unit_code(root_com, "GetInputUnitForLength", log)
+    raw_force = _raw_unit_code(root_com, "GetInputUnitForForce", log)
+
+    if raw_len is not None and raw_len in _LEN_CODE_TO_UNIT:
+        length_unit = _LEN_CODE_TO_UNIT[raw_len]
+        log.info("length unit from raw COM code %d → %s", raw_len, length_unit)
+    else:
+        try:
+            v = root.GetInputUnitForLength()
+            if v:
+                length_unit = str(v).strip()
+                log.info("length unit from wrapper: %s", length_unit)
+        except Exception as e:
+            log.warning("GetInputUnitForLength failed: %s — assuming Meter", e)
+
+    if raw_force is not None and raw_force in _FORCE_CODE_TO_UNIT:
+        force_unit = _FORCE_CODE_TO_UNIT[raw_force]
+        log.info("force unit from raw COM code %d → %s", raw_force, force_unit)
+    else:
+        try:
+            v = root.GetInputUnitForForce()
+            if v:
+                force_unit = str(v).strip()
+                log.info("force unit from wrapper: %s", force_unit)
+        except Exception as e:
+            log.warning("GetInputUnitForForce failed: %s — assuming KiloNewton", e)
+
+    # Normalise aliases.
     length_unit = {"MM": "MilliMeter", "CM": "CentiMeter", "M": "Meter",
                    "MetricTon": "Metric Ton"}.get(length_unit, length_unit)
     if length_unit not in LEN_TO_MM:
@@ -236,6 +286,34 @@ def _detect_units(root, log) -> _Units:
         "model units: length=%s (×%.6g mm) force=%s (×%.6g kN) moment ×%.6g kNm",
         length_unit, units.len_to_mm, force_unit, units.force_to_kn, units.moment_to_knm,
     )
+    return units
+
+
+def _validate_units_heuristic(nodes, units, log) -> _Units:
+    """After reading node coordinates, validate units against expected
+    structural dimensions. If coordinates suggest a different unit, override."""
+    if not nodes:
+        return units
+    max_coord = max(
+        max(abs(n.x_mm), abs(n.y_mm), abs(n.z_mm)) for n in nodes
+    )
+    if max_coord <= 0:
+        return units
+
+    raw_max = max_coord / units.len_to_mm
+
+    if units.length_unit == "Meter" and raw_max > 50:
+        for candidate_unit, candidate_mm in LEN_TO_MM.items():
+            candidate_max_m = raw_max * candidate_mm / 1000.0
+            if 0.5 < candidate_max_m < 200:
+                log.warning(
+                    "unit heuristic: detected %s gives raw_max=%.2f → %.0fmm, "
+                    "but %s gives %.1fm — switching to %s",
+                    units.length_unit, raw_max, max_coord,
+                    candidate_unit, candidate_max_m, candidate_unit,
+                )
+                return _Units(candidate_unit, units.force_unit)
+
     return units
 
 
@@ -386,9 +464,13 @@ def _as_float_list(v, n: int) -> List[float]:
 # ---------------------------------------------------------------------------
 
 class _Passthrough:
-    """Lazily-built comtypes VARIANT-by-ref helpers for methods the official
-    library does not wrap (intermediate forces, node displacements,
-    intermediate deflections)."""
+    """Raw comtypes VARIANT-by-ref helpers for ALL output queries.
+
+    Bypasses the official openstaad Output wrapper entirely so we can:
+    - control the VARIANT layout exactly
+    - get consistent 6-element arrays back
+    - avoid signature mismatches between openstaad versions
+    """
 
     def __init__(self, output_wrapper, log) -> None:
         self._log = log
@@ -401,16 +483,17 @@ class _Passthrough:
         except Exception as e:
             log.warning("openstaad.tools unavailable — passthrough methods disabled: %s", e)
 
-        # Flag the methods we'll call via the raw COM object.
-        for name in (
-            "GetIntermediateMemberForcesAtDistance",
-            "GetNodeDisplacements",
-            "GetIntermediateDeflectionAtDistance",
-        ):
-            try:
-                self._com._FlagAsMethod(name)
-            except Exception:
-                pass
+    def _arr6(self):
+        safe = self._make_dbl_arr(6)
+        pd = self._make_ref(safe, self._automation.VT_ARRAY | self._automation.VT_R8)
+        return safe, pd
+
+    def _read6(self, pd) -> List[float]:
+        try:
+            val = pd[0]
+        except Exception:
+            val = pd
+        return _as_float_list(val, 6)
 
     # -- intermediate member forces (6 doubles) ---------------------------
 
@@ -418,13 +501,40 @@ class _Passthrough:
         if not self._ok:
             return None
         try:
-            safe = self._make_dbl_arr(6)
-            pd = self._make_ref(safe, self._automation.VT_ARRAY | self._automation.VT_R8)
+            safe, pd = self._arr6()
             self._com.GetIntermediateMemberForcesAtDistance(beam, float(dist_model), int(lc), pd)
-            return _as_float_list(pd[0], 6)
+            return self._read6(pd)
         except Exception as e:
             self._log.debug("GetIntermediateMemberForcesAtDistance(beam=%d, d=%.4f, lc=%d): %s",
                             beam, dist_model, lc, e)
+            return None
+
+    # -- member end forces (6 doubles: Fx,Fy,Fz,Mx,My,Mz) ---------------
+
+    def member_end_forces(self, beam: int, start: bool, lc: int) -> Optional[List[float]]:
+        if not self._ok:
+            return None
+        end = 0 if start else 1
+        try:
+            safe, pd = self._arr6()
+            self._com.GetMemberEndForces(int(beam), int(end), int(lc), pd, 0)
+            return self._read6(pd)
+        except Exception as e:
+            self._log.debug("GetMemberEndForces(beam=%d, end=%d, lc=%d): %s",
+                            beam, end, lc, e)
+            return None
+
+    # -- support reactions (6 doubles: Rx,Ry,Rz,Mx,My,Mz) ---------------
+
+    def support_reactions(self, node: int, lc: int) -> Optional[List[float]]:
+        if not self._ok:
+            return None
+        try:
+            safe, pd = self._arr6()
+            self._com.GetSupportReactions(int(node), int(lc), pd)
+            return self._read6(pd)
+        except Exception as e:
+            self._log.debug("GetSupportReactions(node=%d, lc=%d): %s", node, lc, e)
             return None
 
     # -- node displacements (6 values: dx,dy,dz [length units], rx,ry,rz [rad]) --
@@ -433,10 +543,9 @@ class _Passthrough:
         if not self._ok:
             return None
         try:
-            safe = self._make_dbl_arr(6)
-            pd = self._make_ref(safe, self._automation.VT_ARRAY | self._automation.VT_R8)
+            safe, pd = self._arr6()
             self._com.GetNodeDisplacements(int(node), int(lc), pd)
-            return _as_float_list(pd[0], 6)
+            return self._read6(pd)
         except Exception as e:
             self._log.debug("GetNodeDisplacements(node=%d, lc=%d): %s", node, lc, e)
             return None
@@ -539,19 +648,56 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
         node_ids = list(range(1, n_nodes + 1))
     log.info("staad read: %d nodes", len(node_ids))
 
-    nodes: List[SyncNode] = []
-    node_coords: Dict[int, Tuple[float, float, float]] = {}
+    # Read raw coordinates in model units first, then convert.
+    raw_node_coords: Dict[int, Tuple[float, float, float]] = {}
+    node_support: Dict[int, Optional[str]] = {}
     for nid in node_ids:
-        x_mm = y_mm = z_mm = 0.0
+        rx = ry = rz = 0.0
         try:
             c = geo.GetNodeCoordinates(int(nid))
             if c is not None and hasattr(c, "__len__") and len(c) >= 3:
-                x_mm = _as_float(c[0]) * units.len_to_mm
-                y_mm = _as_float(c[1]) * units.len_to_mm
-                z_mm = _as_float(c[2]) * units.len_to_mm
+                rx = _as_float(c[0])
+                ry = _as_float(c[1])
+                rz = _as_float(c[2])
         except Exception as e:
             log.warning("GetNodeCoordinates(%d): %s", nid, e)
-        st = _support_type_for_node(support_com, int(nid))
+        raw_node_coords[int(nid)] = (rx, ry, rz)
+        node_support[int(nid)] = _support_type_for_node(support_com, int(nid))
+
+    if raw_node_coords:
+        first_nid = node_ids[0]
+        rc = raw_node_coords[int(first_nid)]
+        log.info("node %d raw coords (model units): x=%.4f y=%.4f z=%.4f", first_nid, rc[0], rc[1], rc[2])
+
+    # Heuristic unit validation: check if raw coord magnitudes make sense.
+    max_raw = max(
+        (max(abs(rx), abs(ry), abs(rz)) for rx, ry, rz in raw_node_coords.values()),
+        default=0.0,
+    )
+    if max_raw > 0:
+        log.info("max raw coord magnitude: %.4f (in '%s')", max_raw, units.length_unit)
+        # If detected unit gives building dimensions > 200m, likely wrong.
+        max_m = max_raw * units.len_to_m
+        if max_m > 200:
+            for candidate, c_to_m in sorted(LEN_TO_M.items(), key=lambda kv: kv[1]):
+                cand_m = max_raw * c_to_m
+                if 0.5 < cand_m < 200:
+                    log.warning(
+                        "unit override: detected '%s' gives %.1fm max, "
+                        "but '%s' gives %.1fm — switching",
+                        units.length_unit, max_m, candidate, cand_m,
+                    )
+                    units = _Units(candidate, units.force_unit)
+                    break
+
+    nodes: List[SyncNode] = []
+    node_coords: Dict[int, Tuple[float, float, float]] = {}
+    for nid in node_ids:
+        rx, ry, rz = raw_node_coords[int(nid)]
+        x_mm = rx * units.len_to_mm
+        y_mm = ry * units.len_to_mm
+        z_mm = rz * units.len_to_mm
+        st = node_support[int(nid)]
         node_coords[int(nid)] = (x_mm, y_mm, z_mm)
         nodes.append(SyncNode(node_id=int(nid), x_mm=x_mm, y_mm=y_mm, z_mm=z_mm,
                               support_type=st))
@@ -725,9 +871,33 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
 
     log.info("split: %d primary cases, %d REPEAT LOAD combos, %d LOAD COMBINATIONs",
              len(load_cases), len(repeat_load_combos), len(true_combo_numbers))
+    log.info("combo_numbers (%d entries): %s", len(combo_numbers),
+             combo_numbers[:20] if len(combo_numbers) <= 20 else f"{combo_numbers[:10]}...{combo_numbers[-5:]}")
+
+    # If no combos found, also try reading forces for primary load cases.
+    all_lc_numbers = combo_numbers if combo_numbers else [lc.case_number for lc in load_cases]
+    if not combo_numbers:
+        log.warning("no combo_numbers found — using %d primary load cases for force queries", len(all_lc_numbers))
 
     member_ids = [m.member_id for m in members]
     member_length_mm = {m.member_id: m.length_mm for m in members}
+
+    # --- Probe: test one force call to verify output COM works --------
+    _probe_done = False
+    if all_lc_numbers and member_ids:
+        probe_mid = member_ids[0]
+        probe_lc = all_lc_numbers[0]
+        # Try passthrough (raw COM)
+        ef_probe = passthrough.member_end_forces(probe_mid, True, probe_lc)
+        log.info("PROBE end forces (member=%d, lc=%d): passthrough → %s",
+                 probe_mid, probe_lc, ef_probe)
+        # Try wrapper as fallback diagnostic
+        try:
+            ew = output.GetMemberEndForces(int(probe_mid), True, int(probe_lc), 0)
+            log.info("PROBE end forces wrapper → %r (type=%s)", ew, type(ew).__name__)
+        except Exception as e:
+            log.info("PROBE end forces wrapper failed: %s", e)
+        _probe_done = True
 
     # --- Diagram points (the critical bit) ----------------------------
     # 11 samples per member per combo of M(x), V(x), N(x).
@@ -737,18 +907,16 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     for mid in member_ids:
         len_mm = member_length_mm.get(mid, 0.0)
         len_model = len_mm / units.len_to_mm if units.len_to_mm else 0.0
-        for combo in combo_numbers:
+        for combo in all_lc_numbers:
             for s in range(N_SAMPLES):
                 x_ratio = s / (N_SAMPLES - 1)
                 x_mm = len_mm * x_ratio
                 dist_model = len_model * x_ratio
                 forces = passthrough.intermediate_member_forces(mid, dist_model, combo)
                 if forces is None:
-                    # Fall back to end forces for s==0 / s==N-1.
                     if s == 0 or s == N_SAMPLES - 1:
-                        ef = _member_end_forces(output, mid, (s == 0), combo)
-                        forces = ef if ef is not None else [0.0] * 6
-                    else:
+                        forces = passthrough.member_end_forces(mid, (s == 0), combo)
+                    if forces is None:
                         forces = [0.0] * 6
                 fx, fy, fz, mx, my, mz = forces[0], forces[1], forces[2], forces[3], forces[4], forces[5]
                 n_kn = fx * units.force_to_kn
@@ -770,21 +938,17 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                 envelope_map[mid].update(combo=combo, mz_knm=mz_knm, vy_kn=vy_kn,
                                          n_kn=n_kn, my_knm=my_knm)
 
+    log.info("diagram_points: %d total", len(diagram_points))
     envelope = [acc.to_row(mid) for mid, acc in envelope_map.items()]
 
-    # --- Reactions -----------------------------------------------------
+    # --- Reactions (via raw COM passthrough) ---------------------------
     reactions: List[SyncReaction] = []
     support_nodes = [n.node_id for n in nodes if n.support_type is not None]
     for node in support_nodes:
-        for combo in combo_numbers:
-            r = None
-            try:
-                r = output.GetSupportReactions(int(node), int(combo))
-            except Exception as e:
-                log.debug("GetSupportReactions(node=%d, lc=%d): %s", node, combo, e)
-            if r is None:
+        for combo in all_lc_numbers:
+            rl = passthrough.support_reactions(int(node), int(combo))
+            if rl is None:
                 continue
-            rl = _as_float_list(r, 6)
             reactions.append(SyncReaction(
                 node_id=int(node),
                 combo_number=int(combo),
@@ -795,12 +959,12 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                 my_knm=rl[4] * units.moment_to_knm,
                 mz_knm=rl[5] * units.moment_to_knm,
             ))
+    log.info("reactions: %d", len(reactions))
 
-    # --- Displacements -------------------------------------------------
-    # 6 values: dx, dy, dz (length units → mm), rx, ry, rz (radians, no conv).
+    # --- Displacements (via raw COM passthrough) ----------------------
     displacements: List[SyncDisplacement] = []
     for node in [n.node_id for n in nodes]:
-        for combo in combo_numbers:
+        for combo in all_lc_numbers:
             d = passthrough.node_displacements(int(node), int(combo))
             if d is None:
                 continue
@@ -814,16 +978,16 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                 ry_rad=d[4],
                 rz_rad=d[5],
             ))
+    log.info("displacements: %d", len(displacements))
 
-    # --- End forces ----------------------------------------------------
+    # --- End forces (via raw COM passthrough) -------------------------
     end_forces: List[SyncEndForce] = []
     for mid in member_ids:
-        for combo in combo_numbers:
+        for combo in all_lc_numbers:
             for end_idx, is_start in ((0, True), (1, False)):
-                f = _member_end_forces(output, mid, is_start, combo)
-                if f is None:
+                fl = passthrough.member_end_forces(int(mid), is_start, int(combo))
+                if fl is None:
                     continue
-                fl = _as_float_list(f, 6)
                 end_forces.append(SyncEndForce(
                     member_id=int(mid),
                     end_index=int(end_idx),
@@ -835,13 +999,14 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                     my_knm=fl[4] * units.moment_to_knm,
                     mz_knm=fl[5] * units.moment_to_knm,
                 ))
+    log.info("end_forces: %d", len(end_forces))
 
     # --- Deflections (midspan only) -----------------------------------
     deflections: List[SyncDeflection] = []
     for m in members:
         len_model = m.length_mm / units.len_to_mm if units.len_to_mm else 0.0
         mid_dist = 0.5 * len_model
-        for combo in combo_numbers:
+        for combo in all_lc_numbers:
             res = passthrough.intermediate_deflection(int(m.member_id), mid_dist, int(combo))
             if res is None:
                 continue
@@ -853,6 +1018,7 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                 dy_mm=dy * units.len_to_mm,
                 dz_mm=dz * units.len_to_mm,
             ))
+    log.info("deflections: %d", len(deflections))
 
     return SyncPayload(
         project_id=project_id,
