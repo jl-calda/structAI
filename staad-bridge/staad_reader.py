@@ -451,36 +451,55 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
 def _get_member_incidences(geometry, member_id: int) -> tuple:
     """Read (start_node_id, end_node_id) for a member.
 
-    Uses the SAME VARIANT by-ref pattern as GetNodeCoordinates (which works).
-    Key insight: use VT_R8 (doubles) not VT_I4 — STAAD COM returns node IDs
-    as doubles in many versions, just like it returns coordinates as doubles.
+    Confirmed pattern from official OpenStaadPython (github.com/OpenStaad):
+      safe_n1 = make_safe_array_long(1)
+      x = make_variant_vt_ref(safe_n1, VT_I4)
+      geometry.GetMemberIncidence(beam, x, y)
+      return (x[0], y[0])
+
+    Our bridge uses win32com instead of comtypes, so the VARIANT
+    construction differs. We try VT_R8 first (matches working
+    GetNodeCoordinates) then VT_I4 then single-arg return.
     """
 
-    # Approach 1: VT_R8 by-ref (matches the working GetNodeCoordinates pattern)
+    # Approach 1: VT_R8 by-ref — matches GetNodeCoordinates which works
     try:
         s = _make_variant_double()
         e = _make_variant_double()
         geometry.GetMemberIncidence(member_id, s, e)
-        si = int(_unwrap_float(s))
-        ei = int(_unwrap_float(e))
+        # Try both .value and [0] access (official lib uses [0])
+        try:
+            si = int(s[0]) if hasattr(s, '__getitem__') else int(_unwrap_float(s))
+        except (TypeError, IndexError):
+            si = int(_unwrap_float(s))
+        try:
+            ei = int(e[0]) if hasattr(e, '__getitem__') else int(_unwrap_float(e))
+        except (TypeError, IndexError):
+            ei = int(_unwrap_float(e))
         if si > 0 and ei > 0:
             return si, ei
     except Exception:
         pass
 
-    # Approach 2: VT_I4 by-ref (documented type — may work on some builds)
+    # Approach 2: VT_I4 by-ref (official comtypes pattern uses this)
     try:
         s = _make_variant_long()
         e = _make_variant_long()
         geometry.GetMemberIncidence(member_id, s, e)
-        si = _unwrap_int(s)
-        ei = _unwrap_int(e)
+        try:
+            si = int(s[0]) if hasattr(s, '__getitem__') else _unwrap_int(s)
+        except (TypeError, IndexError):
+            si = _unwrap_int(s)
+        try:
+            ei = int(e[0]) if hasattr(e, '__getitem__') else _unwrap_int(e)
+        except (TypeError, IndexError):
+            ei = _unwrap_int(e)
         if si > 0 and ei > 0:
             return si, ei
     except Exception:
         pass
 
-    # Approach 3: single-arg — some builds return (nodeA, nodeB) directly
+    # Approach 3: single-arg — return value is (nodeA, nodeB)
     try:
         result = geometry.GetMemberIncidence(member_id)
         if result is not None:
