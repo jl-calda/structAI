@@ -909,10 +909,21 @@ button { font: inherit; color: inherit; }
    MOBILE RESPONSIVE OVERRIDES
    ========================================================================= */
 
+/* Mobile toggle buttons — hidden on desktop */
+.mobile-toggle { display: none; }
+.mobile-backdrop { display: none; }
+
 /* ---------- Tablet (≤ 1024px) ---------- */
 @media (max-width: 1024px) {
-  /* Right inspector collapses on tablet */
-  .right { display: none; }
+  /* Right inspector → toggleable overlay */
+  .right {
+    position: fixed; right: -320px; top: 36px; bottom: 0;
+    width: 300px; z-index: 50;
+    transition: right 200ms ease;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.1);
+  }
+  .right.mobile-open { right: 0; }
+  .right.collapsed { right: -320px !important; }
 
   /* 3-column design layouts → 2 columns */
   [data-step="2-reinforcement"] .card-b {
@@ -922,15 +933,57 @@ button { font: inherit; color: inherit; }
 
 /* ---------- Mobile (≤ 768px) ---------- */
 @media (max-width: 768px) {
-  /* Sidebar → collapsed by default (icon rail) */
-  .left { width: 44px !important; }
+  /* Sidebar → toggleable overlay from left */
+  .left {
+    position: fixed; left: -280px; top: 36px; bottom: 0;
+    z-index: 50; width: 240px !important;
+    transition: left 200ms ease;
+    box-shadow: 4px 0 16px rgba(0,0,0,0.1);
+  }
+  .left.mobile-open { left: 0; }
+  .left.collapsed { left: -280px !important; width: 240px !important; }
   .left .nav-item span,
   .left .left-head,
   .left .tree-scroll,
-  .left .left-section:last-child { display: none; }
+  .left .left-section:last-child { display: block; }
 
-  /* Right inspector hidden */
-  .right { display: none; }
+  /* Right inspector → toggleable overlay */
+  .right {
+    position: fixed; right: -320px; top: 36px; bottom: 0;
+    width: 300px; z-index: 50;
+    transition: right 200ms ease;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.1);
+  }
+  .right.mobile-open { right: 0; }
+
+  /* Mobile overlay backdrop */
+  .mobile-backdrop {
+    display: none;
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(0,0,0,0.3);
+  }
+  .mobile-backdrop.visible { display: block; }
+
+  /* Mobile toggle buttons (shown only on mobile) */
+  .mobile-toggle {
+    display: flex !important;
+    position: fixed; z-index: 45;
+    width: 36px; height: 36px;
+    align-items: center; justify-content: center;
+    border-radius: 0 6px 6px 0;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line);
+    border-left: none;
+    cursor: pointer;
+    box-shadow: 2px 2px 8px rgba(0,0,0,0.08);
+  }
+  .mobile-toggle-left { left: 0; top: 50%; }
+  .mobile-toggle-right {
+    right: 0; top: 50%;
+    border-radius: 6px 0 0 6px;
+    border: 1px solid var(--color-line);
+    border-right: none;
+  }
 
   /* Top nav — smaller, wrap tools */
   .topbar { height: auto; min-height: 36px; flex-wrap: wrap; padding: 4px 8px; gap: 4px; }
@@ -1001,8 +1054,8 @@ button { font: inherit; color: inherit; }
 
 /* ---------- Small phone (≤ 480px) ---------- */
 @media (max-width: 480px) {
-  /* Sidebar completely hidden */
-  .left { display: none; }
+  /* Sidebar stays toggleable, just narrower */
+  .left { width: 200px !important; }
 
   /* Even smaller text */
   body { font-size: 11px; }
