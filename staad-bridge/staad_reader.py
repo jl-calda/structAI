@@ -449,26 +449,68 @@ def _get_node_coords(geometry, node_id: int) -> tuple:
 
 
 def _get_member_incidences(geometry, member_id: int) -> tuple:
-    """Read (start_node_id, end_node_id) for a member."""
-    # Attempt 1: VARIANT by-ref.
+    """Read (start_node_id, end_node_id) for a member.
+
+    OpenSTAAD V22 CONNECT has inconsistent behavior — some builds return
+    the nodes via by-ref VARIANT params, others return a tuple, and some
+    write to the VARIANT but wrap it in extra layers. We try multiple
+    approaches and unwrap aggressively.
+    """
+    import win32com.client  # type: ignore
+    import pythoncom  # type: ignore
+
+    # Approach 1: by-ref VARIANTs (documented API)
     try:
-        s = _make_variant_long()
-        e = _make_variant_long()
+        s = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0])
+        e = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_I4, [0])
+        sv = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, s)
+        ev = win32com.client.VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, e)
         try:
-            geometry.GetMemberIncidence(member_id, s, e)
+            geometry.GetMemberIncidence(member_id, sv, ev)
         except Exception:
-            geometry.GetMemberIncidences(member_id, s, e)
-        si, ei = _unwrap_int(s), _unwrap_int(e)
-        if si != 0 or ei != 0:
+            try:
+                geometry.GetMemberIncidences(member_id, sv, ev)
+            except Exception:
+                pass
+        si = _unwrap_int(sv)
+        ei = _unwrap_int(ev)
+        if si > 0 and ei > 0:
             return si, ei
     except Exception:
         pass
 
-    # Attempt 2: single-arg call.
+    # Approach 2: single-arg — some builds return (nodeA, nodeB) directly
     try:
         result = geometry.GetMemberIncidence(member_id)
-        if result is not None and hasattr(result, '__len__') and len(result) >= 2:
-            return _unwrap_int(result[0]), _unwrap_int(result[1])
+        if result is not None:
+            # Could be a tuple, list, or nested VARIANT
+            vals = _unwrap(result)
+            if hasattr(vals, '__len__') and len(vals) >= 2:
+                a, b = int(_unwrap(vals[0])), int(_unwrap(vals[1]))
+                if a > 0 and b > 0:
+                    return a, b
+            elif isinstance(vals, (int, float)) and vals > 0:
+                # Single value — try getting the second via result indexing
+                pass
+    except Exception:
+        pass
+
+    # Approach 3: result is a VARIANT wrapping an array
+    try:
+        result = geometry.GetMemberIncidence(member_id)
+        if result is not None:
+            # Unwrap all layers
+            v = result
+            for _ in range(5):
+                if hasattr(v, 'value'):
+                    v = v.value
+                elif hasattr(v, '__getitem__') and hasattr(v, '__len__') and len(v) >= 2:
+                    a, b = int(v[0]), int(v[1])
+                    if a > 0 and b > 0:
+                        return a, b
+                    break
+                else:
+                    break
     except Exception:
         pass
 
@@ -610,6 +652,31 @@ def _read_real_model(project_id: str, file_path: Path) -> SyncPayload:
     members: List[SyncMember] = []
     for i in range(1, n_members + 1):
         start_id, end_id = _get_member_incidences(geometry, i)
+        if start_id == 0 and end_id == 0:
+            log.warning("member %d: incidence returned (0,0) — trying alternate approaches", i)
+            # Last-resort: try calling without _FlagAsMethod by using raw getattr
+            try:
+                raw = getattr(geometry, 'GetMemberIncidence')
+                if callable(raw):
+                    r = raw(i)
+                    log.info("member %d: raw call returned %r (type=%s)", i, r, type(r).__name__)
+                    if r is not None:
+                        v = r
+                        for _ in range(5):
+                            if hasattr(v, 'value'):
+                                v = v.value
+                            elif hasattr(v, '__getitem__') and hasattr(v, '__len__'):
+                                if len(v) >= 2:
+                                    start_id = int(v[0]) if v[0] else 0
+                                    end_id = int(v[1]) if v[1] else 0
+                                    log.info("member %d: extracted (%d, %d) from raw", i, start_id, end_id)
+                                break
+                            else:
+                                break
+                else:
+                    log.info("member %d: GetMemberIncidence is a property, value=%r", i, raw)
+            except Exception as ex:
+                log.warning("member %d: last-resort raw call failed: %s", i, ex)
 
         # GetBeamLength is the only length accessor in OpenSTAAD's Geometry
         # class; fall back to Euclidean distance between start/end nodes.
