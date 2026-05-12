@@ -200,8 +200,8 @@ class _Units:
 
 
 _LEN_CODE_TO_UNIT = {
-    0: "Inch", 1: "Feet", 2: "CentiMeter", 3: "Meter",
-    4: "MilliMeter", 5: "DeciMeter", 6: "KiloMeter",
+    0: "Inch", 1: "Feet", 2: "Feet", 3: "CentiMeter",
+    4: "Meter", 5: "MilliMeter", 6: "DeciMeter", 7: "KiloMeter",
 }
 _FORCE_CODE_TO_UNIT = {
     0: "Kilopound", 1: "Pound", 2: "Kilogram", 3: "Metric Ton",
@@ -489,11 +489,45 @@ class _Passthrough:
         return safe, pd
 
     def _read6(self, pd) -> List[float]:
+        """Read 6 doubles from a VT_ARRAY|VT_R8|VT_BYREF VARIANT.
+
+        The official openstaad library uses `x.value[0]` — for a SAFEARRAY
+        variant, `.value` returns the dereferenced array, and `[0]` unwraps
+        the outer tuple if nested.
+        """
         try:
-            val = pd[0]
+            raw = pd.value
+            if raw is not None:
+                if isinstance(raw, (list, tuple)):
+                    if len(raw) == 1 and isinstance(raw[0], (list, tuple)):
+                        return _as_float_list(raw[0], 6)
+                    return _as_float_list(raw, 6)
+                return _as_float_list(raw, 6)
         except Exception:
-            val = pd
-        return _as_float_list(val, 6)
+            pass
+        try:
+            return _as_float_list(pd[0], 6)
+        except Exception:
+            return [0.0] * 6
+
+    def _read_scalar(self, pd) -> float:
+        """Read a single double from a VT_R8|VT_BYREF or VT_ARRAY|VT_R8 VARIANT."""
+        try:
+            raw = pd.value
+            if isinstance(raw, (int, float)):
+                return float(raw)
+            if isinstance(raw, (list, tuple)):
+                flat = raw[0] if raw else 0.0
+                if isinstance(flat, (list, tuple)):
+                    flat = flat[0] if flat else 0.0
+                return float(flat)
+        except Exception:
+            pass
+        try:
+            v = pd[0]
+            return float(v) if not isinstance(v, (list, tuple)) else float(v[0])
+        except Exception:
+            return 0.0
 
     # -- intermediate member forces (6 doubles) ---------------------------
 
@@ -561,8 +595,8 @@ class _Passthrough:
             py = self._make_ref(sy, self._automation.VT_ARRAY | self._automation.VT_R8)
             pz = self._make_ref(sz, self._automation.VT_ARRAY | self._automation.VT_R8)
             self._com.GetIntermediateDeflectionAtDistance(beam, float(dist_model), int(lc), py, pz)
-            dy = _as_float(list(py[0]) if hasattr(py[0], "__iter__") else py[0])
-            dz = _as_float(list(pz[0]) if hasattr(pz[0], "__iter__") else pz[0])
+            dy = self._read_scalar(py)
+            dz = self._read_scalar(pz)
             return dy, dz
         except Exception as e:
             self._log.debug("GetIntermediateDeflectionAtDistance(beam=%d, d=%.4f, lc=%d): %s",
@@ -634,7 +668,7 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
 
     passthrough = _Passthrough(output, log)
 
-    # --- Nodes ---------------------------------------------------------
+    # --- Read node & member ID lists early (needed for unit heuristic) ---
     try:
         node_ids = list(_as_int_tuple(geo.GetNodeList()))
     except Exception as e:
@@ -647,6 +681,19 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
             raise StaadError(f"Geometry.GetNodeCount failed: {e}") from e
         node_ids = list(range(1, n_nodes + 1))
     log.info("staad read: %d nodes", len(node_ids))
+
+    try:
+        beam_ids = list(_as_int_tuple(geo.GetBeamList()))
+    except Exception as e:
+        log.warning("GetBeamList failed (%s) — falling back to 1..GetMemberCount", e)
+        beam_ids = []
+    if not beam_ids:
+        try:
+            n_members = int(geo.GetMemberCount())
+        except Exception as e:
+            raise StaadError(f"Geometry.GetMemberCount failed: {e}") from e
+        beam_ids = list(range(1, n_members + 1))
+    log.info("staad read: %d members", len(beam_ids))
 
     # Read raw coordinates in model units first, then convert.
     raw_node_coords: Dict[int, Tuple[float, float, float]] = {}
@@ -669,22 +716,60 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
         rc = raw_node_coords[int(first_nid)]
         log.info("node %d raw coords (model units): x=%.4f y=%.4f z=%.4f", first_nid, rc[0], rc[1], rc[2])
 
-    # Heuristic unit validation: check if raw coord magnitudes make sense.
+    # --- Heuristic unit validation ---
+    # The COM API sometimes returns the wrong unit code. Use section
+    # dimensions (most constrained: structural sections are typically
+    # 150-1500mm) to pick the correct length unit.
+    probe_dims: List[float] = []
+    for bid in beam_ids[:5]:
+        try:
+            sn = _safe_section_name(prop, prop_com, int(bid))
+            if sn:
+                nums = re.findall(r"[\d.]+", sn)
+                for n in nums:
+                    v = float(n)
+                    if 1 < v < 10000:
+                        probe_dims.append(v)
+        except Exception:
+            pass
+
+    if not probe_dims:
+        # No section dims; try from member incidences once available
+        pass
+
     max_raw = max(
         (max(abs(rx), abs(ry), abs(rz)) for rx, ry, rz in raw_node_coords.values()),
         default=0.0,
     )
-    if max_raw > 0:
-        log.info("max raw coord magnitude: %.4f (in '%s')", max_raw, units.length_unit)
-        # If detected unit gives building dimensions > 200m, likely wrong.
+    log.info("max raw coord: %.4f, probe section dims: %s", max_raw, probe_dims[:6])
+
+    if probe_dims:
+        # Score each candidate: section dims should map to 100-2000mm range
+        best_unit = units.length_unit
+        best_score = -1
+        for candidate, c_mm in LEN_TO_MM.items():
+            dims_mm = [d * c_mm for d in probe_dims]
+            in_range = sum(1 for d in dims_mm if 100 <= d <= 2000)
+            score = in_range / len(dims_mm)
+            if score > best_score:
+                best_score = score
+                best_unit = candidate
+        if best_unit != units.length_unit and best_score > 0.5:
+            sample_mm = [round(d * LEN_TO_MM[best_unit]) for d in probe_dims[:4]]
+            log.warning(
+                "unit override: section dims %s → %s mm with '%s' (score=%.0f%%) — switching from '%s'",
+                probe_dims[:4], sample_mm, best_unit, best_score * 100, units.length_unit,
+            )
+            units = _Units(best_unit, units.force_unit)
+    elif max_raw > 0:
+        # Fallback: use coordinate magnitudes
         max_m = max_raw * units.len_to_m
-        if max_m > 200:
-            for candidate, c_to_m in sorted(LEN_TO_M.items(), key=lambda kv: kv[1]):
-                cand_m = max_raw * c_to_m
-                if 0.5 < cand_m < 200:
+        if max_m > 200 or max_m < 0.5:
+            for candidate in ["Inch", "Feet", "MilliMeter", "CentiMeter", "Meter"]:
+                cand_m = max_raw * LEN_TO_M[candidate]
+                if 1.0 < cand_m < 200:
                     log.warning(
-                        "unit override: detected '%s' gives %.1fm max, "
-                        "but '%s' gives %.1fm — switching",
+                        "unit override (coord heuristic): '%s' → %.1fm, '%s' → %.1fm — switching",
                         units.length_unit, max_m, candidate, cand_m,
                     )
                     units = _Units(candidate, units.force_unit)
@@ -703,19 +788,6 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                               support_type=st))
 
     # --- Members -------------------------------------------------------
-    try:
-        beam_ids = list(_as_int_tuple(geo.GetBeamList()))
-    except Exception as e:
-        log.warning("GetBeamList failed (%s) — falling back to 1..GetMemberCount", e)
-        beam_ids = []
-    if not beam_ids:
-        try:
-            n_members = int(geo.GetMemberCount())
-        except Exception as e:
-            raise StaadError(f"Geometry.GetMemberCount failed: {e}") from e
-        beam_ids = list(range(1, n_members + 1))
-    log.info("staad read: %d members", len(beam_ids))
-
     members: List[SyncMember] = []
     for bid in beam_ids:
         bid = int(bid)
@@ -883,21 +955,30 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     member_length_mm = {m.member_id: m.length_mm for m in members}
 
     # --- Probe: test one force call to verify output COM works --------
-    _probe_done = False
     if all_lc_numbers and member_ids:
         probe_mid = member_ids[0]
         probe_lc = all_lc_numbers[0]
-        # Try passthrough (raw COM)
+        # Try passthrough (raw COM) with extra diagnostics
         ef_probe = passthrough.member_end_forces(probe_mid, True, probe_lc)
         log.info("PROBE end forces (member=%d, lc=%d): passthrough → %s",
                  probe_mid, probe_lc, ef_probe)
+        # Raw VARIANT diagnostic
+        if passthrough._ok:
+            try:
+                safe, pd = passthrough._arr6()
+                com = passthrough._com
+                com.GetMemberEndForces(int(probe_mid), 0, int(probe_lc), pd, 0)
+                log.info("PROBE raw: pd.vt=%s, pd.value=%r, pd[0]=%r",
+                         getattr(pd, 'vt', '?'), getattr(pd, 'value', '?'),
+                         pd[0] if pd is not None else '?')
+            except Exception as e:
+                log.info("PROBE raw failed: %s", e)
         # Try wrapper as fallback diagnostic
         try:
             ew = output.GetMemberEndForces(int(probe_mid), True, int(probe_lc), 0)
-            log.info("PROBE end forces wrapper → %r (type=%s)", ew, type(ew).__name__)
+            log.info("PROBE wrapper → %r (type=%s)", ew, type(ew).__name__)
         except Exception as e:
-            log.info("PROBE end forces wrapper failed: %s", e)
-        _probe_done = True
+            log.info("PROBE wrapper failed: %s", e)
 
     # --- Diagram points (the critical bit) ----------------------------
     # 11 samples per member per combo of M(x), V(x), N(x).
