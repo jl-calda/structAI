@@ -951,52 +951,128 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     if not combo_numbers:
         log.warning("no combo_numbers found — using %d primary load cases for force queries", len(all_lc_numbers))
 
+    # ALSO include primary load cases for force queries (some STAAD versions
+    # only return results for primary cases via COM, not combinations).
+    primary_lc_numbers = [lc.case_number for lc in load_cases]
+
     member_ids = [m.member_id for m in members]
     member_length_mm = {m.member_id: m.length_mm for m in members}
 
-    # --- Probe: test one force call to verify output COM works --------
-    if all_lc_numbers and member_ids:
+    # --- Probe: test multiple approaches to find one that returns forces ---
+    use_wrapper_for_end_forces = False
+    force_lc_numbers = all_lc_numbers  # default: combo numbers
+
+    if member_ids:
         probe_mid = member_ids[0]
-        probe_lc = all_lc_numbers[0]
-        # Try passthrough (raw COM) with extra diagnostics
-        ef_probe = passthrough.member_end_forces(probe_mid, True, probe_lc)
-        log.info("PROBE end forces (member=%d, lc=%d): passthrough → %s",
-                 probe_mid, probe_lc, ef_probe)
-        # Raw VARIANT diagnostic
-        if passthrough._ok:
+        # Test 1: passthrough with combo LC
+        if all_lc_numbers:
+            plc = all_lc_numbers[0]
+            ef = passthrough.member_end_forces(probe_mid, True, plc)
+            nonzero = ef is not None and any(abs(v) > 1e-12 for v in ef)
+            log.info("PROBE passthrough combo lc=%d → %s (nonzero=%s)", plc, ef, nonzero)
+
+        # Test 2: passthrough with primary LC #1
+        if primary_lc_numbers and not nonzero:
+            plc = primary_lc_numbers[0]
+            ef = passthrough.member_end_forces(probe_mid, True, plc)
+            nonzero_pri = ef is not None and any(abs(v) > 1e-12 for v in ef)
+            log.info("PROBE passthrough primary lc=%d → %s (nonzero=%s)", plc, ef, nonzero_pri)
+            if nonzero_pri:
+                log.warning("forces found for PRIMARY cases but not COMBO — switching to primary LCs")
+                force_lc_numbers = primary_lc_numbers
+                nonzero = True
+
+        # Test 3: official wrapper with combo LC
+        if all_lc_numbers and not nonzero:
+            plc = all_lc_numbers[0]
+            try:
+                ew = output.GetMemberEndForces(int(probe_mid), True, int(plc), 0)
+                log.info("PROBE wrapper combo lc=%d → %r (type=%s)", plc, ew, type(ew).__name__)
+                if ew is not None:
+                    wl = _as_float_list(ew, 6)
+                    if any(abs(v) > 1e-12 for v in wl):
+                        log.info("PROBE wrapper returned non-zero forces — using wrapper")
+                        use_wrapper_for_end_forces = True
+                        nonzero = True
+            except Exception as e:
+                log.info("PROBE wrapper combo failed: %s", e)
+
+        # Test 4: official wrapper with primary LC #1
+        if primary_lc_numbers and not nonzero:
+            plc = primary_lc_numbers[0]
+            try:
+                ew = output.GetMemberEndForces(int(probe_mid), True, int(plc), 0)
+                log.info("PROBE wrapper primary lc=%d → %r (type=%s)", plc, ew, type(ew).__name__)
+                if ew is not None:
+                    wl = _as_float_list(ew, 6)
+                    if any(abs(v) > 1e-12 for v in wl):
+                        log.info("PROBE wrapper primary returned non-zero — using wrapper + primary LCs")
+                        use_wrapper_for_end_forces = True
+                        force_lc_numbers = primary_lc_numbers
+                        nonzero = True
+            except Exception as e:
+                log.info("PROBE wrapper primary failed: %s", e)
+
+        # Test 5: raw VARIANT diagnostic
+        if not nonzero and passthrough._ok:
+            plc = primary_lc_numbers[0] if primary_lc_numbers else (all_lc_numbers[0] if all_lc_numbers else 1)
             try:
                 safe, pd = passthrough._arr6()
                 com = passthrough._com
-                com.GetMemberEndForces(int(probe_mid), 0, int(probe_lc), pd, 0)
-                log.info("PROBE raw: pd.vt=%s, pd.value=%r, pd[0]=%r",
-                         getattr(pd, 'vt', '?'), getattr(pd, 'value', '?'),
-                         pd[0] if pd is not None else '?')
+                com.GetMemberEndForces(int(probe_mid), 0, int(plc), pd, 0)
+                log.info("PROBE raw VARIANT: pd.vt=%s pd.value=%r type(pd.value)=%s",
+                         getattr(pd, 'vt', '?'),
+                         getattr(pd, 'value', '?'),
+                         type(getattr(pd, 'value', None)).__name__)
+                # Also try reading safe array directly
+                try:
+                    import ctypes
+                    arr = (ctypes.c_double * 6)()
+                    ctypes.memmove(arr, ctypes.addressof(safe), 48)
+                    raw_vals = list(arr)
+                    log.info("PROBE safe array raw: %s", raw_vals)
+                except Exception as e2:
+                    log.info("PROBE safe array read failed: %s", e2)
             except Exception as e:
-                log.info("PROBE raw failed: %s", e)
-        # Try wrapper as fallback diagnostic
-        try:
-            ew = output.GetMemberEndForces(int(probe_mid), True, int(probe_lc), 0)
-            log.info("PROBE wrapper → %r (type=%s)", ew, type(ew).__name__)
-        except Exception as e:
-            log.info("PROBE wrapper failed: %s", e)
+                log.info("PROBE raw VARIANT failed: %s", e)
+
+        if not nonzero:
+            log.warning("ALL force probes returned zero — STAAD may not have analysis results")
+
+    log.info("force strategy: lc_numbers=%d entries, wrapper=%s",
+             len(force_lc_numbers), use_wrapper_for_end_forces)
 
     # --- Diagram points (the critical bit) ----------------------------
     # 11 samples per member per combo of M(x), V(x), N(x).
     diagram_points: List[SyncDiagramPoint] = []
     envelope_map: Dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
 
+    def _get_end_forces(mid, is_start, lc):
+        """Try passthrough first, then wrapper."""
+        f = passthrough.member_end_forces(mid, is_start, lc)
+        if f is not None and any(abs(v) > 1e-12 for v in f):
+            return f
+        if use_wrapper_for_end_forces:
+            try:
+                v = output.GetMemberEndForces(int(mid), bool(is_start), int(lc), 0)
+                if v is not None:
+                    return _as_float_list(v, 6)
+            except Exception:
+                pass
+        return f
+
     for mid in member_ids:
         len_mm = member_length_mm.get(mid, 0.0)
         len_model = len_mm / units.len_to_mm if units.len_to_mm else 0.0
-        for combo in all_lc_numbers:
+        for combo in force_lc_numbers:
             for s in range(N_SAMPLES):
                 x_ratio = s / (N_SAMPLES - 1)
                 x_mm = len_mm * x_ratio
                 dist_model = len_model * x_ratio
                 forces = passthrough.intermediate_member_forces(mid, dist_model, combo)
-                if forces is None:
+                if forces is None or not any(abs(v) > 1e-12 for v in forces):
                     if s == 0 or s == N_SAMPLES - 1:
-                        forces = passthrough.member_end_forces(mid, (s == 0), combo)
+                        forces = _get_end_forces(mid, (s == 0), combo)
                     if forces is None:
                         forces = [0.0] * 6
                 fx, fy, fz, mx, my, mz = forces[0], forces[1], forces[2], forces[3], forces[4], forces[5]
@@ -1022,12 +1098,20 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     log.info("diagram_points: %d total", len(diagram_points))
     envelope = [acc.to_row(mid) for mid, acc in envelope_map.items()]
 
-    # --- Reactions (via raw COM passthrough) ---------------------------
+    # --- Reactions -----------------------------------------------------
     reactions: List[SyncReaction] = []
     support_nodes = [n.node_id for n in nodes if n.support_type is not None]
     for node in support_nodes:
-        for combo in all_lc_numbers:
+        for combo in force_lc_numbers:
             rl = passthrough.support_reactions(int(node), int(combo))
+            if rl is None:
+                # Try official wrapper
+                try:
+                    v = output.GetSupportReactions(int(node), int(combo))
+                    if v is not None:
+                        rl = _as_float_list(v, 6)
+                except Exception:
+                    pass
             if rl is None:
                 continue
             reactions.append(SyncReaction(
@@ -1042,10 +1126,10 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
             ))
     log.info("reactions: %d", len(reactions))
 
-    # --- Displacements (via raw COM passthrough) ----------------------
+    # --- Displacements -------------------------------------------------
     displacements: List[SyncDisplacement] = []
     for node in [n.node_id for n in nodes]:
-        for combo in all_lc_numbers:
+        for combo in force_lc_numbers:
             d = passthrough.node_displacements(int(node), int(combo))
             if d is None:
                 continue
@@ -1061,12 +1145,12 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
             ))
     log.info("displacements: %d", len(displacements))
 
-    # --- End forces (via raw COM passthrough) -------------------------
+    # --- End forces ----------------------------------------------------
     end_forces: List[SyncEndForce] = []
     for mid in member_ids:
-        for combo in all_lc_numbers:
+        for combo in force_lc_numbers:
             for end_idx, is_start in ((0, True), (1, False)):
-                fl = passthrough.member_end_forces(int(mid), is_start, int(combo))
+                fl = _get_end_forces(int(mid), is_start, int(combo))
                 if fl is None:
                     continue
                 end_forces.append(SyncEndForce(
@@ -1087,7 +1171,7 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     for m in members:
         len_model = m.length_mm / units.len_to_mm if units.len_to_mm else 0.0
         mid_dist = 0.5 * len_model
-        for combo in all_lc_numbers:
+        for combo in force_lc_numbers:
             res = passthrough.intermediate_deflection(int(m.member_id), mid_dist, int(combo))
             if res is None:
                 continue
