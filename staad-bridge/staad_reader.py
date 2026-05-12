@@ -468,19 +468,25 @@ def _as_float_list(v, n: int) -> List[float]:
 # ---------------------------------------------------------------------------
 
 class _Passthrough:
-    """Raw comtypes VARIANT-by-ref helpers for ALL output queries.
+    """Raw comtypes helpers for output queries the official wrapper doesn't
+    expose, plus min/max-based fallbacks built on the wrapper methods that
+    *do* work (GetMemberEndForces, GetMinMaxBendingMoment, ...)."""
 
-    Bypasses the official openstaad Output wrapper entirely so we can:
-    - control the VARIANT layout exactly
-    - get consistent 6-element arrays back
-    - avoid signature mismatches between openstaad versions
-    """
-
-    def __init__(self, output_wrapper, log) -> None:
+    def __init__(self, output_wrapper, root_com, log) -> None:
         self._log = log
-        self._com = _com_obj(output_wrapper)
+        self._wrapper = output_wrapper          # official Output() — for GetMinMax* & GetMemberEndForces
+        d = getattr(output_wrapper, "__dict__", {}) or {}
+        self._output_com = d.get("_output")     # the Output sub-object COM
+        self._root_com = root_com or d.get("_root")
+        # Candidate COM objects to try result methods on (Output sub-object first).
+        self._candidates = [c for c in (self._output_com, self._root_com) if c is not None]
+        if not self._candidates:
+            self._candidates = [_com_obj(output_wrapper)]
+        self._com = self._candidates[0]
         self._ok = False
-        self.saw_lock_error = False  # "Memory is locked" → no analysis results
+        self.saw_lock_error = False
+        # Remember which COM object served each method (so we don't re-probe).
+        self._method_obj: Dict[str, object] = {}
         try:
             (self._make_dbl_arr, self._make_long_arr,
              self._make_ref, self._automation) = _import_openstaad_tools()
@@ -488,25 +494,11 @@ class _Passthrough:
         except Exception as e:
             log.warning("openstaad.tools unavailable — passthrough methods disabled: %s", e)
 
+    # -- low-level helpers ------------------------------------------------
+
     def _note_error(self, e) -> None:
         if "locked" in str(e).lower():
             self.saw_lock_error = True
-
-    def _call_with_retry(self, fn, *args, attempts: int = 3):
-        """Call a COM method, retrying briefly on transient lock errors."""
-        import time
-        last = None
-        for i in range(attempts):
-            try:
-                return fn(*args), None
-            except Exception as e:
-                last = e
-                self._note_error(e)
-                if "locked" in str(e).lower() and i < attempts - 1:
-                    time.sleep(0.05 * (i + 1))
-                    continue
-                break
-        return None, last
 
     def _arr6(self):
         safe = self._make_dbl_arr(6)
@@ -514,12 +506,6 @@ class _Passthrough:
         return safe, pd
 
     def _read6(self, pd) -> List[float]:
-        """Read 6 doubles from a VT_ARRAY|VT_R8|VT_BYREF VARIANT.
-
-        The official openstaad library uses `x.value[0]` — for a SAFEARRAY
-        variant, `.value` returns the dereferenced array, and `[0]` unwraps
-        the outer tuple if nested.
-        """
         try:
             raw = pd.value
             if raw is not None:
@@ -536,7 +522,6 @@ class _Passthrough:
             return [0.0] * 6
 
     def _read_scalar(self, pd) -> float:
-        """Read a single double from a VT_R8|VT_BYREF or VT_ARRAY|VT_R8 VARIANT."""
         try:
             raw = pd.value
             if isinstance(raw, (int, float)):
@@ -554,61 +539,113 @@ class _Passthrough:
         except Exception:
             return 0.0
 
+    def _invoke(self, method: str, *args, attempts: int = 3):
+        """Call `method` on whichever candidate COM object has it.
+
+        Returns (result, error). Caches the working object per method name.
+        Retries briefly on transient 'Memory is locked' errors.
+        """
+        import time
+        cached = self._method_obj.get(method)
+        objs = [cached] if cached is not None else self._candidates
+        last = None
+        for obj in objs:
+            try:
+                fn = getattr(obj, method)
+            except Exception as e:           # comtypes raises COMError 'Unknown name'
+                last = e
+                continue
+            for i in range(attempts):
+                try:
+                    res = fn(*args)
+                    self._method_obj[method] = obj
+                    return res, None
+                except Exception as e:
+                    last = e
+                    self._note_error(e)
+                    if "locked" in str(e).lower() and i < attempts - 1:
+                        time.sleep(0.05 * (i + 1))
+                        continue
+                    break
+        return None, last
+
     # -- intermediate member forces (6 doubles) ---------------------------
 
     def intermediate_member_forces(self, beam: int, dist_model: float, lc: int) -> Optional[List[float]]:
         if not self._ok:
             return None
         safe, pd = self._arr6()
-        _, err = self._call_with_retry(
-            self._com.GetIntermediateMemberForcesAtDistance, int(beam), float(dist_model), int(lc), pd)
+        _, err = self._invoke("GetIntermediateMemberForcesAtDistance",
+                              int(beam), float(dist_model), int(lc), pd)
         if err is not None:
             self._log.debug("GetIntermediateMemberForcesAtDistance(beam=%d, d=%.4f, lc=%d): %s",
                             beam, dist_model, lc, err)
             return None
         return self._read6(pd)
 
-    # -- member end forces (6 doubles: Fx,Fy,Fz,Mx,My,Mz) ---------------
+    # -- member end forces ------------------------------------------------
 
     def member_end_forces(self, beam: int, start: bool, lc: int) -> Optional[List[float]]:
+        # Prefer the official wrapper — proven to return real values.
+        try:
+            v = self._wrapper.GetMemberEndForces(int(beam), bool(start), int(lc), 0)
+            if v is not None:
+                fl = _as_float_list(v, 6)
+                if any(abs(x) > 1e-12 for x in fl):
+                    return fl
+                # zero — keep, but also fall through to raw COM in case wrapper degraded
+                wrapper_zero = fl
+            else:
+                wrapper_zero = None
+        except Exception as e:
+            self._note_error(e)
+            wrapper_zero = None
         if not self._ok:
-            return None
-        end = 0 if start else 1
+            return wrapper_zero
         safe, pd = self._arr6()
-        _, err = self._call_with_retry(
-            self._com.GetMemberEndForces, int(beam), int(end), int(lc), pd, 0)
+        end = 0 if start else 1
+        _, err = self._invoke("GetMemberEndForces", int(beam), int(end), int(lc), pd, 0)
         if err is not None:
-            self._log.debug("GetMemberEndForces(beam=%d, end=%d, lc=%d): %s", beam, end, lc, err)
-            return None
+            return wrapper_zero
         return self._read6(pd)
 
-    # -- support reactions (6 doubles: Rx,Ry,Rz,Mx,My,Mz) ---------------
+    # -- support reactions ------------------------------------------------
 
     def support_reactions(self, node: int, lc: int) -> Optional[List[float]]:
+        # Try wrapper first.
+        try:
+            v = self._wrapper.GetSupportReactions(int(node), int(lc))
+            if v is not None:
+                fl = _as_float_list(v, 6)
+                if any(abs(x) > 1e-12 for x in fl):
+                    return fl
+                wrapper_zero = fl
+            else:
+                wrapper_zero = None
+        except Exception as e:
+            self._note_error(e)
+            wrapper_zero = None
         if not self._ok:
-            return None
+            return wrapper_zero
         safe, pd = self._arr6()
-        _, err = self._call_with_retry(
-            self._com.GetSupportReactions, int(node), int(lc), pd)
+        _, err = self._invoke("GetSupportReactions", int(node), int(lc), pd)
         if err is not None:
-            self._log.debug("GetSupportReactions(node=%d, lc=%d): %s", node, lc, err)
-            return None
+            return wrapper_zero
         return self._read6(pd)
 
-    # -- node displacements (6 values: dx,dy,dz [length units], rx,ry,rz [rad]) --
+    # -- node displacements ----------------------------------------------
 
     def node_displacements(self, node: int, lc: int) -> Optional[List[float]]:
         if not self._ok:
             return None
         safe, pd = self._arr6()
-        _, err = self._call_with_retry(
-            self._com.GetNodeDisplacements, int(node), int(lc), pd)
+        _, err = self._invoke("GetNodeDisplacements", int(node), int(lc), pd)
         if err is not None:
             self._log.debug("GetNodeDisplacements(node=%d, lc=%d): %s", node, lc, err)
             return None
         return self._read6(pd)
 
-    # -- intermediate deflection (two by-ref doubles dY, dZ) --------------
+    # -- intermediate deflection -----------------------------------------
 
     def intermediate_deflection(self, beam: int, dist_model: float, lc: int) -> Optional[Tuple[float, float]]:
         if not self._ok:
@@ -617,13 +654,46 @@ class _Passthrough:
         sz = self._make_dbl_arr(1)
         py = self._make_ref(sy, self._automation.VT_ARRAY | self._automation.VT_R8)
         pz = self._make_ref(sz, self._automation.VT_ARRAY | self._automation.VT_R8)
-        _, err = self._call_with_retry(
-            self._com.GetIntermediateDeflectionAtDistance, int(beam), float(dist_model), int(lc), py, pz)
+        _, err = self._invoke("GetIntermediateDeflectionAtDistance",
+                              int(beam), float(dist_model), int(lc), py, pz)
         if err is not None:
             self._log.debug("GetIntermediateDeflectionAtDistance(beam=%d, d=%.4f, lc=%d): %s",
                             beam, dist_model, lc, err)
             return None
         return self._read_scalar(py), self._read_scalar(pz)
+
+    # -- min/max along member (value + position from start) --------------
+
+    def min_max(self, beam: int, lc: int) -> Optional[dict]:
+        """Returns {'mz': (vmin, pmin, vmax, pmax), 'my': ..., 'vy': ..., 'vz': ..., 'n': ...}
+        where positions are distances from the start node in model length units.
+        Uses the official wrapper's GetMinMax* methods."""
+        out = {}
+
+        def _grab(fn, *args):
+            try:
+                r = fn(*args)
+                if r is None:
+                    return None
+                t = tuple(_as_float(x) for x in (r if hasattr(r, "__iter__") else (r,)))
+                return t if len(t) >= 4 else None
+            except Exception as e:
+                self._note_error(e)
+                return None
+
+        for key, fn, args in (
+            ("mz", getattr(self._wrapper, "GetMinMaxBendingMoment", None), (int(beam), "Z", int(lc))),
+            ("my", getattr(self._wrapper, "GetMinMaxBendingMoment", None), (int(beam), "Y", int(lc))),
+            ("vy", getattr(self._wrapper, "GetMinMaxShearForce", None), (int(beam), "Y", int(lc))),
+            ("vz", getattr(self._wrapper, "GetMinMaxShearForce", None), (int(beam), "Z", int(lc))),
+            ("n", getattr(self._wrapper, "GetMinMaxAxialForce", None), (int(beam), int(lc))),
+        ):
+            if fn is None:
+                continue
+            r = _grab(fn, *args)
+            if r is not None:
+                out[key] = r
+        return out or None
 
 
 # ---------------------------------------------------------------------------
@@ -688,7 +758,7 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
             except Exception:
                 pass
 
-    passthrough = _Passthrough(output, log)
+    passthrough = _Passthrough(output, _com_obj(root), log)
 
     # --- Read node & member ID lists early (needed for unit heuristic) ---
     try:
@@ -980,144 +1050,121 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     member_ids = [m.member_id for m in members]
     member_length_mm = {m.member_id: m.length_mm for m in members}
 
-    # --- Probe: test multiple approaches to find one that returns forces ---
-    use_wrapper_for_end_forces = False
-    force_lc_numbers = all_lc_numbers  # default: combo numbers
+    # --- Probe: figure out which force APIs are usable ---------------
+    force_lc_numbers = all_lc_numbers       # default: combo numbers
+    intermediate_ok = False                 # GetIntermediateMemberForcesAtDistance works?
 
     if member_ids:
         probe_mid = member_ids[0]
-        # Test 1: passthrough with combo LC
-        if all_lc_numbers:
-            plc = all_lc_numbers[0]
+        probe_len_model = (member_length_mm.get(probe_mid, 0.0) / units.len_to_mm
+                           if units.len_to_mm else 0.0)
+        # End-force probe: combo LC, then primary LC #1.
+        nonzero = False
+        for label, lcs in (("combo", all_lc_numbers), ("primary", primary_lc_numbers)):
+            if nonzero or not lcs:
+                continue
+            plc = lcs[0]
             ef = passthrough.member_end_forces(probe_mid, True, plc)
-            nonzero = ef is not None and any(abs(v) > 1e-12 for v in ef)
-            log.info("PROBE passthrough combo lc=%d → %s (nonzero=%s)", plc, ef, nonzero)
-
-        # Test 2: passthrough with primary LC #1
-        if primary_lc_numbers and not nonzero:
-            plc = primary_lc_numbers[0]
-            ef = passthrough.member_end_forces(probe_mid, True, plc)
-            nonzero_pri = ef is not None and any(abs(v) > 1e-12 for v in ef)
-            log.info("PROBE passthrough primary lc=%d → %s (nonzero=%s)", plc, ef, nonzero_pri)
-            if nonzero_pri:
-                log.warning("forces found for PRIMARY cases but not COMBO — switching to primary LCs")
-                force_lc_numbers = primary_lc_numbers
+            ok = ef is not None and any(abs(v) > 1e-12 for v in ef)
+            log.info("PROBE end forces %s lc=%d → %s (nonzero=%s)", label, plc, ef, ok)
+            if ok:
                 nonzero = True
-
-        # Test 3: official wrapper with combo LC
-        if all_lc_numbers and not nonzero:
-            plc = all_lc_numbers[0]
-            try:
-                ew = output.GetMemberEndForces(int(probe_mid), True, int(plc), 0)
-                log.info("PROBE wrapper combo lc=%d → %r (type=%s)", plc, ew, type(ew).__name__)
-                if ew is not None:
-                    wl = _as_float_list(ew, 6)
-                    if any(abs(v) > 1e-12 for v in wl):
-                        log.info("PROBE wrapper returned non-zero forces — using wrapper")
-                        use_wrapper_for_end_forces = True
-                        nonzero = True
-            except Exception as e:
-                log.info("PROBE wrapper combo failed: %s", e)
-
-        # Test 4: official wrapper with primary LC #1
-        if primary_lc_numbers and not nonzero:
-            plc = primary_lc_numbers[0]
-            try:
-                ew = output.GetMemberEndForces(int(probe_mid), True, int(plc), 0)
-                log.info("PROBE wrapper primary lc=%d → %r (type=%s)", plc, ew, type(ew).__name__)
-                if ew is not None:
-                    wl = _as_float_list(ew, 6)
-                    if any(abs(v) > 1e-12 for v in wl):
-                        log.info("PROBE wrapper primary returned non-zero — using wrapper + primary LCs")
-                        use_wrapper_for_end_forces = True
-                        force_lc_numbers = primary_lc_numbers
-                        nonzero = True
-            except Exception as e:
-                log.info("PROBE wrapper primary failed: %s", e)
-
-        # Test 5: raw VARIANT diagnostic
-        if not nonzero and passthrough._ok:
-            plc = primary_lc_numbers[0] if primary_lc_numbers else (all_lc_numbers[0] if all_lc_numbers else 1)
-            try:
-                safe, pd = passthrough._arr6()
-                com = passthrough._com
-                com.GetMemberEndForces(int(probe_mid), 0, int(plc), pd, 0)
-                log.info("PROBE raw VARIANT: pd.vt=%s pd.value=%r type(pd.value)=%s",
-                         getattr(pd, 'vt', '?'),
-                         getattr(pd, 'value', '?'),
-                         type(getattr(pd, 'value', None)).__name__)
-                # Also try reading safe array directly
-                try:
-                    import ctypes
-                    arr = (ctypes.c_double * 6)()
-                    ctypes.memmove(arr, ctypes.addressof(safe), 48)
-                    raw_vals = list(arr)
-                    log.info("PROBE safe array raw: %s", raw_vals)
-                except Exception as e2:
-                    log.info("PROBE safe array read failed: %s", e2)
-            except Exception as e:
-                log.info("PROBE raw VARIANT failed: %s", e)
-
+                if label == "primary":
+                    log.warning("forces present for PRIMARY cases — using primary LCs for force queries")
+                    force_lc_numbers = primary_lc_numbers
         if not nonzero:
-            log.warning("ALL force probes returned zero — STAAD may not have analysis results")
+            log.warning("end-force probe returned zero — STAAD may have no analysis results, "
+                        "or is in a state where COM result reads fail (try Analyze→Run Analysis)")
 
-    log.info("force strategy: lc_numbers=%d entries, wrapper=%s",
-             len(force_lc_numbers), use_wrapper_for_end_forces)
+        # Intermediate-forces probe.
+        if probe_len_model > 0 and force_lc_numbers:
+            plc = force_lc_numbers[0]
+            fi = passthrough.intermediate_member_forces(probe_mid, probe_len_model * 0.5, plc)
+            served = passthrough._method_obj.get("GetIntermediateMemberForcesAtDistance")
+            log.info("PROBE intermediate@0.5 lc=%d → %s (served=%s)", plc, fi, served is not None)
+            intermediate_ok = fi is not None
 
-    # --- Diagram points (the critical bit) ----------------------------
-    # 11 samples per member per combo of M(x), V(x), N(x).
-    diagram_points: List[SyncDiagramPoint] = []
-    envelope_map: Dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
+        # min/max probe.
+        if force_lc_numbers:
+            mm = passthrough.min_max(probe_mid, force_lc_numbers[0])
+            log.info("PROBE min/max → %s", mm)
+
+    log.info("force strategy: lc_numbers=%d, intermediate=%s",
+             len(force_lc_numbers), intermediate_ok)
 
     def _get_end_forces(mid, is_start, lc):
-        """Try passthrough first, then wrapper."""
         f = passthrough.member_end_forces(mid, is_start, lc)
-        if f is not None and any(abs(v) > 1e-12 for v in f):
-            return f
-        if use_wrapper_for_end_forces:
-            try:
-                v = output.GetMemberEndForces(int(mid), bool(is_start), int(lc), 0)
-                if v is not None:
-                    return _as_float_list(v, 6)
-            except Exception:
-                pass
-        return f
+        return f if f is not None else [0.0] * 6
+
+    # --- Diagram points (M/V/N along each member, per combo) ----------
+    diagram_points: List[SyncDiagramPoint] = []
+    envelope_map: Dict[int, _EnvelopeAcc] = {m.member_id: _EnvelopeAcc() for m in members}
+    # 6-vector index: 0=N(Fx) 1=Vy(Fy) 2=Vz(Fz) 3=Mx 4=My 5=Mz
+    _COMP_IDX = {"n": 0, "vy": 1, "vz": 2, "my": 4, "mz": 5}
+    n_full = n_fallback = 0
+
+    def _emit(mid, combo, xr, xmm, f):
+        f = (list(f) + [0.0] * 6)[:6]
+        n_kn = f[0] * units.force_to_kn
+        vy_kn = f[1] * units.force_to_kn
+        vz_kn = f[2] * units.force_to_kn
+        mz_knm = f[5] * units.moment_to_knm
+        my_knm = f[4] * units.moment_to_knm
+        diagram_points.append(SyncDiagramPoint(
+            member_id=mid, combo_number=combo, x_ratio=xr, x_mm=xmm,
+            mz_knm=mz_knm, vy_kn=vy_kn, n_kn=n_kn, my_knm=my_knm, vz_kn=vz_kn))
+        envelope_map[mid].update(combo=combo, mz_knm=mz_knm, vy_kn=vy_kn, n_kn=n_kn, my_knm=my_knm)
 
     for mid in member_ids:
         len_mm = member_length_mm.get(mid, 0.0)
         len_model = len_mm / units.len_to_mm if units.len_to_mm else 0.0
         for combo in force_lc_numbers:
-            for s in range(N_SAMPLES):
-                x_ratio = s / (N_SAMPLES - 1)
-                x_mm = len_mm * x_ratio
-                dist_model = len_model * x_ratio
-                forces = passthrough.intermediate_member_forces(mid, dist_model, combo)
-                if forces is None or not any(abs(v) > 1e-12 for v in forces):
-                    if s == 0 or s == N_SAMPLES - 1:
-                        forces = _get_end_forces(mid, (s == 0), combo)
-                    if forces is None:
-                        forces = [0.0] * 6
-                fx, fy, fz, mx, my, mz = forces[0], forces[1], forces[2], forces[3], forces[4], forces[5]
-                n_kn = fx * units.force_to_kn
-                vy_kn = fy * units.force_to_kn
-                vz_kn = fz * units.force_to_kn
-                mz_knm = mz * units.moment_to_knm
-                my_knm = my * units.moment_to_knm
-                diagram_points.append(SyncDiagramPoint(
-                    member_id=mid,
-                    combo_number=combo,
-                    x_ratio=x_ratio,
-                    x_mm=x_mm,
-                    mz_knm=mz_knm,
-                    vy_kn=vy_kn,
-                    n_kn=n_kn,
-                    my_knm=my_knm,
-                    vz_kn=vz_kn,
-                ))
-                envelope_map[mid].update(combo=combo, mz_knm=mz_knm, vy_kn=vy_kn,
-                                         n_kn=n_kn, my_knm=my_knm)
+            f0 = _get_end_forces(mid, True, combo)
+            f1 = _get_end_forces(mid, False, combo)
+            ends_nonzero = any(abs(v) > 1e-9 for v in f0) or any(abs(v) > 1e-9 for v in f1)
 
-    log.info("diagram_points: %d total", len(diagram_points))
+            interior = None
+            if intermediate_ok and len_model > 0:
+                interior = []
+                for s in range(1, N_SAMPLES - 1):
+                    dist = len_model * (s / (N_SAMPLES - 1))
+                    fi = passthrough.intermediate_member_forces(mid, dist, combo)
+                    if fi is None:
+                        interior = None
+                        break
+                    interior.append(fi)
+            interior_nonzero = interior is not None and any(
+                any(abs(v) > 1e-9 for v in fi) for fi in interior)
+
+            if interior is not None and (interior_nonzero or not ends_nonzero):
+                n_full += 1
+                _emit(mid, combo, 0.0, 0.0, f0)
+                for s in range(1, N_SAMPLES - 1):
+                    xr = s / (N_SAMPLES - 1)
+                    _emit(mid, combo, xr, len_mm * xr, interior[s - 1])
+                _emit(mid, combo, 1.0, len_mm, f1)
+            else:
+                # Fallback: endpoints + min/max critical points; interpolate
+                # the other components linearly between the two ends.
+                n_fallback += 1
+                crit: Dict[float, Dict[int, float]] = {0.0: {}, 1.0: {}}
+                mm = passthrough.min_max(mid, combo) or {}
+                for key, idx in _COMP_IDX.items():
+                    t = mm.get(key)
+                    if not t or len_model <= 0:
+                        continue
+                    vmin, pmin, vmax, pmax = t[0], t[1], t[2], t[3]
+                    for val, pos in ((vmin, pmin), (vmax, pmax)):
+                        xr = round(max(0.0, min(1.0, pos / len_model)), 3)
+                        crit.setdefault(xr, {})[idx] = val
+                for xr in sorted(crit):
+                    f = [f0[i] + (f1[i] - f0[i]) * xr for i in range(6)]
+                    for idx, val in crit[xr].items():
+                        f[idx] = val
+                    _emit(mid, combo, xr, len_mm * xr, f)
+
+    log.info("diagram_points: %d total (%d full-curve, %d min/max-fallback member-combos)",
+             len(diagram_points), n_full, n_fallback)
     envelope = [acc.to_row(mid) for mid, acc in envelope_map.items()]
 
     # --- Reactions -----------------------------------------------------
@@ -1126,14 +1173,6 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     for node in support_nodes:
         for combo in force_lc_numbers:
             rl = passthrough.support_reactions(int(node), int(combo))
-            if rl is None:
-                # Try official wrapper
-                try:
-                    v = output.GetSupportReactions(int(node), int(combo))
-                    if v is not None:
-                        rl = _as_float_list(v, 6)
-                except Exception:
-                    pass
             if rl is None:
                 continue
             reactions.append(SyncReaction(
