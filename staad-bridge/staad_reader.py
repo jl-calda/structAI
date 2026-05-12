@@ -151,16 +151,20 @@ def _com_obj(wrapper):
     """Return the underlying comtypes COM object behind an openstaad wrapper.
 
     openstaad wrappers store the COM pointer as `._<name>` (e.g. Output → `._output`,
-    Geometry → `._geometry`, Root → `._root`). We must read it out of the
-    instance __dict__ directly — these wrappers define __getattr__ that forwards
-    *unknown* attributes to the COM object, which raises a COMError (not
-    AttributeError) for names the COM object doesn't recognise.
+    Geometry → `._geometry`, Root → `._root`). Crucially the sub-object wrappers
+    ALSO store `._root` (the top-level OpenSTAAD object), so we must check the
+    *specific* sub-object name FIRST — otherwise an Output() wrapper would yield
+    the root COM object and result-method calls would silently return zeros.
+
+    Read it out of the instance __dict__ directly — these wrappers define
+    __getattr__ that forwards unknown attributes to the COM object, which raises
+    a COMError (not AttributeError) for names the COM object doesn't recognise.
     """
     d = getattr(wrapper, "__dict__", None)
     if isinstance(d, dict):
-        for attr in ("_root", "_output", "_geometry", "_load", "_property",
+        for attr in ("_output", "_geometry", "_load", "_property",
                      "_support", "_design", "_command", "_view",
-                     "_com", "comObject", "_obj"):
+                     "_root", "_com", "comObject", "_obj"):
             obj = d.get(attr)
             if obj is not None:
                 return obj
@@ -476,12 +480,33 @@ class _Passthrough:
         self._log = log
         self._com = _com_obj(output_wrapper)
         self._ok = False
+        self.saw_lock_error = False  # "Memory is locked" → no analysis results
         try:
             (self._make_dbl_arr, self._make_long_arr,
              self._make_ref, self._automation) = _import_openstaad_tools()
             self._ok = True
         except Exception as e:
             log.warning("openstaad.tools unavailable — passthrough methods disabled: %s", e)
+
+    def _note_error(self, e) -> None:
+        if "locked" in str(e).lower():
+            self.saw_lock_error = True
+
+    def _call_with_retry(self, fn, *args, attempts: int = 3):
+        """Call a COM method, retrying briefly on transient lock errors."""
+        import time
+        last = None
+        for i in range(attempts):
+            try:
+                return fn(*args), None
+            except Exception as e:
+                last = e
+                self._note_error(e)
+                if "locked" in str(e).lower() and i < attempts - 1:
+                    time.sleep(0.05 * (i + 1))
+                    continue
+                break
+        return None, last
 
     def _arr6(self):
         safe = self._make_dbl_arr(6)
@@ -534,14 +559,14 @@ class _Passthrough:
     def intermediate_member_forces(self, beam: int, dist_model: float, lc: int) -> Optional[List[float]]:
         if not self._ok:
             return None
-        try:
-            safe, pd = self._arr6()
-            self._com.GetIntermediateMemberForcesAtDistance(beam, float(dist_model), int(lc), pd)
-            return self._read6(pd)
-        except Exception as e:
+        safe, pd = self._arr6()
+        _, err = self._call_with_retry(
+            self._com.GetIntermediateMemberForcesAtDistance, int(beam), float(dist_model), int(lc), pd)
+        if err is not None:
             self._log.debug("GetIntermediateMemberForcesAtDistance(beam=%d, d=%.4f, lc=%d): %s",
-                            beam, dist_model, lc, e)
+                            beam, dist_model, lc, err)
             return None
+        return self._read6(pd)
 
     # -- member end forces (6 doubles: Fx,Fy,Fz,Mx,My,Mz) ---------------
 
@@ -549,59 +574,56 @@ class _Passthrough:
         if not self._ok:
             return None
         end = 0 if start else 1
-        try:
-            safe, pd = self._arr6()
-            self._com.GetMemberEndForces(int(beam), int(end), int(lc), pd, 0)
-            return self._read6(pd)
-        except Exception as e:
-            self._log.debug("GetMemberEndForces(beam=%d, end=%d, lc=%d): %s",
-                            beam, end, lc, e)
+        safe, pd = self._arr6()
+        _, err = self._call_with_retry(
+            self._com.GetMemberEndForces, int(beam), int(end), int(lc), pd, 0)
+        if err is not None:
+            self._log.debug("GetMemberEndForces(beam=%d, end=%d, lc=%d): %s", beam, end, lc, err)
             return None
+        return self._read6(pd)
 
     # -- support reactions (6 doubles: Rx,Ry,Rz,Mx,My,Mz) ---------------
 
     def support_reactions(self, node: int, lc: int) -> Optional[List[float]]:
         if not self._ok:
             return None
-        try:
-            safe, pd = self._arr6()
-            self._com.GetSupportReactions(int(node), int(lc), pd)
-            return self._read6(pd)
-        except Exception as e:
-            self._log.debug("GetSupportReactions(node=%d, lc=%d): %s", node, lc, e)
+        safe, pd = self._arr6()
+        _, err = self._call_with_retry(
+            self._com.GetSupportReactions, int(node), int(lc), pd)
+        if err is not None:
+            self._log.debug("GetSupportReactions(node=%d, lc=%d): %s", node, lc, err)
             return None
+        return self._read6(pd)
 
     # -- node displacements (6 values: dx,dy,dz [length units], rx,ry,rz [rad]) --
 
     def node_displacements(self, node: int, lc: int) -> Optional[List[float]]:
         if not self._ok:
             return None
-        try:
-            safe, pd = self._arr6()
-            self._com.GetNodeDisplacements(int(node), int(lc), pd)
-            return self._read6(pd)
-        except Exception as e:
-            self._log.debug("GetNodeDisplacements(node=%d, lc=%d): %s", node, lc, e)
+        safe, pd = self._arr6()
+        _, err = self._call_with_retry(
+            self._com.GetNodeDisplacements, int(node), int(lc), pd)
+        if err is not None:
+            self._log.debug("GetNodeDisplacements(node=%d, lc=%d): %s", node, lc, err)
             return None
+        return self._read6(pd)
 
     # -- intermediate deflection (two by-ref doubles dY, dZ) --------------
 
     def intermediate_deflection(self, beam: int, dist_model: float, lc: int) -> Optional[Tuple[float, float]]:
         if not self._ok:
             return None
-        try:
-            sy = self._make_dbl_arr(1)
-            sz = self._make_dbl_arr(1)
-            py = self._make_ref(sy, self._automation.VT_ARRAY | self._automation.VT_R8)
-            pz = self._make_ref(sz, self._automation.VT_ARRAY | self._automation.VT_R8)
-            self._com.GetIntermediateDeflectionAtDistance(beam, float(dist_model), int(lc), py, pz)
-            dy = self._read_scalar(py)
-            dz = self._read_scalar(pz)
-            return dy, dz
-        except Exception as e:
+        sy = self._make_dbl_arr(1)
+        sz = self._make_dbl_arr(1)
+        py = self._make_ref(sy, self._automation.VT_ARRAY | self._automation.VT_R8)
+        pz = self._make_ref(sz, self._automation.VT_ARRAY | self._automation.VT_R8)
+        _, err = self._call_with_retry(
+            self._com.GetIntermediateDeflectionAtDistance, int(beam), float(dist_model), int(lc), py, pz)
+        if err is not None:
             self._log.debug("GetIntermediateDeflectionAtDistance(beam=%d, d=%.4f, lc=%d): %s",
-                            beam, dist_model, lc, e)
+                            beam, dist_model, lc, err)
             return None
+        return self._read_scalar(py), self._read_scalar(pz)
 
 
 # ---------------------------------------------------------------------------
@@ -1184,6 +1206,18 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                 dz_mm=dz * units.len_to_mm,
             ))
     log.info("deflections: %d", len(deflections))
+
+    total_results = len(reactions) + len(displacements) + len(end_forces) + len(deflections)
+    if passthrough.saw_lock_error or total_results == 0:
+        log.warning(
+            "=" * 70 + "\n"
+            "  NO ANALYSIS RESULTS could be read from STAAD ('Memory is locked').\n"
+            "  Geometry/load cases synced fine, but forces/reactions/displacements\n"
+            "  are all zero. This happens when STAAD's results database is locked\n"
+            "  by the GUI. FIX: in STAAD Pro, switch to 'Analytical Modeling' mode\n"
+            "  (or close the Post-Processing result tables), then sync again.\n"
+            + "=" * 70
+        )
 
     return SyncPayload(
         project_id=project_id,

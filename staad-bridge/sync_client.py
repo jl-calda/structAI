@@ -9,7 +9,9 @@ import httpx
 
 from payload import SyncPayload
 
-TIMEOUT_S = 10.0
+# Generous timeout: payloads with 10k+ diagram points are large and the
+# server has to upsert a lot of rows.
+TIMEOUT_S = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
 
 
 @dataclass
