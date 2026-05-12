@@ -487,6 +487,27 @@ class _Passthrough:
         self.saw_lock_error = False
         # Remember which COM object served each method (so we don't re-probe).
         self._method_obj: Dict[str, object] = {}
+        # Flag result methods as methods (not properties) on every candidate COM
+        # object. comtypes dynamic dispatch mishandles unflagged methods with
+        # by-ref OUT params — the official wrapper only flags 9 of them.
+        for obj in self._candidates:
+            for name in (
+                "GetIntermediateMemberForcesAtDistance",
+                "GetMemberEndForces",
+                "GetSupportReactions",
+                "GetNodeDisplacements",
+                "GetIntermediateDeflectionAtDistance",
+                "GetIntermediateMemberTransDisplacements",
+                "GetMemberEndDisplacements",
+                "GetMaxSectionDisplacement",
+                "GetMinMaxBendingMoment",
+                "GetMinMaxShearForce",
+                "GetMinMaxAxialForce",
+            ):
+                try:
+                    obj._FlagAsMethod(name)
+                except Exception:
+                    pass
         try:
             (self._make_dbl_arr, self._make_long_arr,
              self._make_ref, self._automation) = _import_openstaad_tools()
