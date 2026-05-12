@@ -151,16 +151,20 @@ def _com_obj(wrapper):
     """Return the underlying comtypes COM object behind an openstaad wrapper.
 
     openstaad wrappers store the COM pointer as `._<name>` (e.g. Output → `._output`,
-    Geometry → `._geometry`, Root → `._root`). We must read it out of the
-    instance __dict__ directly — these wrappers define __getattr__ that forwards
-    *unknown* attributes to the COM object, which raises a COMError (not
-    AttributeError) for names the COM object doesn't recognise.
+    Geometry → `._geometry`, Root → `._root`). Crucially the sub-object wrappers
+    ALSO store `._root` (the top-level OpenSTAAD object), so we must check the
+    *specific* sub-object name FIRST — otherwise an Output() wrapper would yield
+    the root COM object and result-method calls would silently return zeros.
+
+    Read it out of the instance __dict__ directly — these wrappers define
+    __getattr__ that forwards unknown attributes to the COM object, which raises
+    a COMError (not AttributeError) for names the COM object doesn't recognise.
     """
     d = getattr(wrapper, "__dict__", None)
     if isinstance(d, dict):
-        for attr in ("_root", "_output", "_geometry", "_load", "_property",
+        for attr in ("_output", "_geometry", "_load", "_property",
                      "_support", "_design", "_command", "_view",
-                     "_com", "comObject", "_obj"):
+                     "_root", "_com", "comObject", "_obj"):
             obj = d.get(attr)
             if obj is not None:
                 return obj
