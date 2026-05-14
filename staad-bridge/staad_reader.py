@@ -1097,13 +1097,48 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
             log.warning("end-force probe returned zero — STAAD may have no analysis results, "
                         "or is in a state where COM result reads fail (try Analyze→Run Analysis)")
 
-        # Intermediate-forces probe.
+        # Intermediate-forces probe — try multiple approaches.
         if probe_len_model > 0 and force_lc_numbers:
             plc = force_lc_numbers[0]
+            # A. Via passthrough._invoke (tries _output then _root)
             fi = passthrough.intermediate_member_forces(probe_mid, probe_len_model * 0.5, plc)
             served = passthrough._method_obj.get("GetIntermediateMemberForcesAtDistance")
-            log.info("PROBE intermediate@0.5 lc=%d → %s (served=%s)", plc, fi, served is not None)
-            intermediate_ok = fi is not None
+            fi_nonzero = fi is not None and any(abs(v) > 1e-12 for v in fi)
+            log.info("PROBE intermediate@0.5 lc=%d → %s (served=%s, nonzero=%s)",
+                     plc, fi, served is not None, fi_nonzero)
+
+            # B. Direct via wrapper __getattr__ (same path as working GetMemberEndForces)
+            if not fi_nonzero and passthrough._ok:
+                try:
+                    from openstaad.tools import make_safe_array_double, make_variant_vt_ref  # type: ignore
+                    from comtypes import automation as _aut  # type: ignore
+                    safe_p = make_safe_array_double(6)
+                    x_p = make_variant_vt_ref(safe_p, _aut.VT_ARRAY | _aut.VT_R8)
+                    output.GetIntermediateMemberForcesAtDistance(
+                        int(probe_mid), float(probe_len_model * 0.5), int(plc), x_p)
+                    direct = x_p.value[0] if hasattr(x_p, 'value') else x_p[0]
+                    log.info("PROBE intermediate DIRECT via wrapper@0.5 → %r", direct)
+                    if direct is not None:
+                        dl = _as_float_list(direct, 6)
+                        if any(abs(v) > 1e-12 for v in dl):
+                            fi_nonzero = True
+                            log.info("PROBE DIRECT returned non-zero! Using wrapper path for intermediate")
+                except Exception as e:
+                    log.info("PROBE intermediate DIRECT failed: %s", e)
+
+            # C. Try dist=0 (should match start end forces)
+            if not fi_nonzero and passthrough._ok:
+                try:
+                    safe_0 = make_safe_array_double(6)
+                    x_0 = make_variant_vt_ref(safe_0, _aut.VT_ARRAY | _aut.VT_R8)
+                    output.GetIntermediateMemberForcesAtDistance(
+                        int(probe_mid), 0.0, int(plc), x_0)
+                    d0 = x_0.value[0] if hasattr(x_0, 'value') else x_0[0]
+                    log.info("PROBE intermediate DIRECT @dist=0 → %r", d0)
+                except Exception as e:
+                    log.info("PROBE intermediate @dist=0 failed: %s", e)
+
+            intermediate_ok = fi is not None and fi_nonzero
 
         # min/max probe.
         if force_lc_numbers:
