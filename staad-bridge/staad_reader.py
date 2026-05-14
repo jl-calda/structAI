@@ -595,19 +595,20 @@ class _Passthrough:
     def intermediate_member_forces(self, beam: int, dist_model: float, lc: int) -> Optional[List[float]]:
         """Get forces at an intermediate distance along a member.
 
-        Uses the wrapper's __getattr__ path (proven to work in the probe)
-        rather than _invoke — for an unknown reason, _invoke's dispatch
-        returns zeros while the wrapper's identical call returns real values.
+        Carbon-copy of the PROBE code that returned real values:
+        fresh imports, fresh SAFEARRAY, wrapper __getattr__, x.value[0].
         """
-        if not self._ok:
-            return None
         try:
-            safe = self._make_dbl_arr(6)
-            pd = self._make_ref(safe, self._automation.VT_ARRAY | self._automation.VT_R8)
+            from openstaad.tools import make_safe_array_double, make_variant_vt_ref  # type: ignore
+            from comtypes import automation as _aut  # type: ignore
+            safe = make_safe_array_double(6)
+            x = make_variant_vt_ref(safe, _aut.VT_ARRAY | _aut.VT_R8)
             self._wrapper.GetIntermediateMemberForcesAtDistance(
-                int(beam), float(dist_model), int(lc), pd)
-            result = self._read6(pd)
-            return result
+                int(beam), float(dist_model), int(lc), x)
+            raw = x.value[0]
+            if raw is not None:
+                return _as_float_list(raw, 6)
+            return [0.0] * 6
         except Exception as e:
             self._note_error(e)
             self._log.debug("GetIntermediateMemberForcesAtDistance(beam=%d, d=%.4f, lc=%d): %s",
