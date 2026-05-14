@@ -1271,12 +1271,28 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     log.info("reactions: %d", len(reactions))
 
     # --- Displacements -------------------------------------------------
+    # Inline COM call — same proven pattern as _intermediate_forces above.
+    def _node_displacements(node, lc):
+        try:
+            sa = _mk_dbl(6)
+            v = _mk_ref(sa, _VT_ARR_R8)
+            output.GetNodeDisplacements(int(node), int(lc), v)
+            raw = v.value[0]
+            return _as_float_list(raw, 6) if raw is not None else None
+        except Exception:
+            return None
+
     displacements: List[SyncDisplacement] = []
+    disp_diag_logged = False
     for node in [n.node_id for n in nodes]:
         for combo in force_lc_numbers:
-            d = passthrough.node_displacements(int(node), int(combo))
+            d = _node_displacements(int(node), int(combo))
             if d is None:
                 continue
+            if not disp_diag_logged:
+                log.info("PROBE node displacement raw node=%d lc=%d → %s (len_to_mm=%.4f)",
+                         node, combo, d, units.len_to_mm)
+                disp_diag_logged = True
             displacements.append(SyncDisplacement(
                 node_id=int(node),
                 combo_number=int(combo),
@@ -1311,15 +1327,37 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
     log.info("end_forces: %d", len(end_forces))
 
     # --- Deflections (midspan only) -----------------------------------
+    # Inline COM call — GetIntermediateDeflectionAtDistance(beam, d, lc, &dY, &dZ).
+    def _intermediate_deflection(beam, dist, lc):
+        try:
+            sy = _mk_dbl(1)
+            sz = _mk_dbl(1)
+            py = _mk_ref(sy, _VT_ARR_R8)
+            pz = _mk_ref(sz, _VT_ARR_R8)
+            output.GetIntermediateDeflectionAtDistance(
+                int(beam), float(dist), int(lc), py, pz)
+            ry = py.value[0]
+            rz = pz.value[0]
+            dy = _as_float(ry[0]) if ry is not None and len(ry) > 0 else 0.0
+            dz = _as_float(rz[0]) if rz is not None and len(rz) > 0 else 0.0
+            return dy, dz
+        except Exception:
+            return None
+
     deflections: List[SyncDeflection] = []
+    defl_diag_logged = False
     for m in members:
         len_model = m.length_mm / units.len_to_mm if units.len_to_mm else 0.0
         mid_dist = 0.5 * len_model
         for combo in force_lc_numbers:
-            res = passthrough.intermediate_deflection(int(m.member_id), mid_dist, int(combo))
+            res = _intermediate_deflection(int(m.member_id), mid_dist, int(combo))
             if res is None:
                 continue
             dy, dz = res
+            if not defl_diag_logged:
+                log.info("PROBE deflection raw mid=%d lc=%d dist=%.4f → dy=%g dz=%g (len_to_mm=%.4f)",
+                         m.member_id, combo, mid_dist, dy, dz, units.len_to_mm)
+                defl_diag_logged = True
             deflections.append(SyncDeflection(
                 member_id=int(m.member_id),
                 combo_number=int(combo),
