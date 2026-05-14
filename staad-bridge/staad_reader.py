@@ -593,16 +593,26 @@ class _Passthrough:
     # -- intermediate member forces (6 doubles) ---------------------------
 
     def intermediate_member_forces(self, beam: int, dist_model: float, lc: int) -> Optional[List[float]]:
+        """Get forces at an intermediate distance along a member.
+
+        Uses the wrapper's __getattr__ path (proven to work in the probe)
+        rather than _invoke — for an unknown reason, _invoke's dispatch
+        returns zeros while the wrapper's identical call returns real values.
+        """
         if not self._ok:
             return None
-        safe, pd = self._arr6()
-        _, err = self._invoke("GetIntermediateMemberForcesAtDistance",
-                              int(beam), float(dist_model), int(lc), pd)
-        if err is not None:
+        try:
+            safe = self._make_dbl_arr(6)
+            pd = self._make_ref(safe, self._automation.VT_ARRAY | self._automation.VT_R8)
+            self._wrapper.GetIntermediateMemberForcesAtDistance(
+                int(beam), float(dist_model), int(lc), pd)
+            result = self._read6(pd)
+            return result
+        except Exception as e:
+            self._note_error(e)
             self._log.debug("GetIntermediateMemberForcesAtDistance(beam=%d, d=%.4f, lc=%d): %s",
-                            beam, dist_model, lc, err)
+                            beam, dist_model, lc, e)
             return None
-        return self._read6(pd)
 
     # -- member end forces ------------------------------------------------
 
