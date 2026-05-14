@@ -15,7 +15,7 @@
  * - Detect a hash mismatch against the previous sync; member-level diff is
  *   deferred to Phase 2 (populates mismatch_members then).
  */
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 import { fail, ok } from '@/lib/api/response'
 import { parseSyncPayload, PayloadError } from '@/lib/bridge/payload'
@@ -56,11 +56,65 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
-  // 1. Detect hash mismatch against the most recent sync for this project.
+  // 0. Load the project's identity. Archived projects reject all syncs;
+  //    live projects with a pinned active_staad_hash reject syncs from a
+  //    different STAAD file (the user has to confirm "Change STAAD" first).
+  const { data: project, error: projErr } = await supabase
+    .from('projects')
+    .select('id, archived_at, active_staad_hash, active_staad_file_name')
+    .eq('id', payload.project_id)
+    .maybeSingle()
+  if (projErr) return fail(`projects lookup: ${projErr.message}`, 500)
+  if (!project) return fail('Project not found', 404)
+  if (project.archived_at) {
+    return NextResponse.json(
+      { ok: false, error: 'project_archived' },
+      { status: 409 },
+    )
+  }
+
+  if (
+    project.active_staad_hash &&
+    project.active_staad_hash !== payload.file_hash
+  ) {
+    // Persist a mismatch row so the UI can show "STAAD X is open in the
+    // bridge but doesn't match" without a side-channel.
+    await supabase.from('staad_syncs').insert({
+      project_id: payload.project_id,
+      file_name: payload.file_name,
+      file_hash: payload.file_hash,
+      unit_system: payload.unit_system,
+      status: 'mismatch',
+      node_count: 0,
+      member_count: 0,
+      mismatch_detected: true,
+      mismatch_members: [],
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'staad_mismatch',
+        active: {
+          file_name: project.active_staad_file_name,
+          file_hash: project.active_staad_hash,
+        },
+        incoming: {
+          file_name: payload.file_name,
+          file_hash: payload.file_hash,
+        },
+      },
+      { status: 409 },
+    )
+  }
+
+  // 1. Detect hash mismatch against the most recent successful sync for
+  //    this project. (Only 'ok' rows count — 'mismatch' rows describe
+  //    rejected attempts and shouldn't trigger the geometry-change flag.)
   const { data: lastSync, error: lastErr } = await supabase
     .from('staad_syncs')
     .select('file_hash')
     .eq('project_id', payload.project_id)
+    .eq('status', 'ok')
     .order('synced_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -127,6 +181,19 @@ export async function POST(request: NextRequest) {
   }
 
   const projectId = payload.project_id
+
+  // 2a. First-sync pin. Once active_staad_hash is set, the guard above
+  //     enforces it on every subsequent sync.
+  if (!project.active_staad_hash) {
+    const { error: pinErr } = await supabase
+      .from('projects')
+      .update({
+        active_staad_hash: payload.file_hash,
+        active_staad_file_name: payload.file_name,
+      })
+      .eq('id', projectId)
+    if (pinErr) return fail(`pin staad: ${pinErr.message}`, 500)
+  }
 
   // 2b. Flag Object 2 designs that reference any changed member. We do
   // this before the upserts so even if a downstream upsert errors, the

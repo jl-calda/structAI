@@ -37,6 +37,24 @@ export default async function ProjectLayout({
       />
       <div className="flex flex-col flex-1 min-w-0 center">
         <TopNav title={project.name} projectId={project.id} codeStandard={project.code_standard} />
+        {project.archived_at && (
+          <div
+            style={{
+              padding: '6px 12px',
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: '#92400e',
+              background: '#fef3c7',
+              borderBottom: '1px solid #fcd34d',
+            }}
+          >
+            Archived snapshot — read only. STAAD file:{' '}
+            <span className="mono">
+              {project.active_staad_file_name ?? '—'}
+            </span>{' '}
+            · archived {new Date(project.archived_at).toLocaleString()}
+          </div>
+        )}
         <main className="flex-1 overflow-auto canvas">
           {children}
         </main>

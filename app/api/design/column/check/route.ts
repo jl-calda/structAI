@@ -76,11 +76,12 @@ export async function POST(request: NextRequest) {
 
   const { data: project, error: projErr } = await supabase
     .from('projects')
-    .select('id, code_standard')
+    .select('id, code_standard, archived_at')
     .eq('id', body.project_id)
     .maybeSingle()
   if (projErr) return fail(`project: ${projErr.message}`, 500)
   if (!project) return fail('project not found', 404)
+  if (project.archived_at) return fail('Project is archived and read-only.', 403)
   const code = getCode(project.code_standard as CodeStandard)
 
   const { data: design, error: dErr } = await supabase

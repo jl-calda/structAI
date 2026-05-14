@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { assertProjectWritable } from '@/lib/api/archived-guard'
+import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { Database } from '@/lib/supabase/types'
 
@@ -24,6 +26,10 @@ export async function createSlabDesignAction(
 
   if (!projectId) return { ok: false, error: 'project_id is required' }
   if (!label) return { ok: false, error: 'Label is required (e.g. S-2A)' }
+
+  const guardSb = await createClient()
+  const guard = await assertProjectWritable(guardSb, projectId)
+  if (!guard.ok) return guard
 
   const span_x_mm = pickNum('span_x_mm', 0)
   const span_y_mm = pickNum('span_y_mm', 0)

@@ -122,7 +122,20 @@ def _sync_blocking(state: BridgeState) -> None:
             )
         else:
             state.last_error = result.error
-            logger.error("sync failed: %s", result.error)
+            if result.terminal:
+                # 409 — project archived or STAAD mismatch. The server
+                # won't accept this file until the user resolves it in
+                # the UI ("Change STAAD"). Treat the current file as
+                # "already attempted" so we don't hammer the endpoint
+                # every poll cycle.
+                state.last_hash = payload.file_hash
+                logger.warning(
+                    "sync rejected (%s): %s — open the project in the app to resolve.",
+                    result.status_code,
+                    result.error,
+                )
+            else:
+                logger.error("sync failed: %s", result.error)
     except Exception as e:
         state.last_error = str(e)
         logger.exception("sync error")

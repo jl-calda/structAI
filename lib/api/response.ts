@@ -14,7 +14,7 @@ export function ok<T>(data: T, init?: ResponseInit): NextResponse<ApiSuccess<T>>
 
 export function fail(
   error: string,
-  status: 400 | 401 | 403 | 404 | 500 = 400,
+  status: 400 | 401 | 403 | 404 | 409 | 500 = 400,
 ): NextResponse<ApiFailure> {
   return NextResponse.json({ ok: false, error }, { status })
 }

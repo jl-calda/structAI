@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
+import { assertProjectWritable } from '@/lib/api/archived-guard'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import type { SupportCondition } from '@/lib/supabase/types'
@@ -23,6 +24,10 @@ export async function createBeamDesignAction(formData: FormData): Promise<Create
 
   if (!projectId) return { ok: false, error: 'project_id is required' }
   if (!label) return { ok: false, error: 'Label is required (e.g. B-12)' }
+
+  const guardSb = await createClient()
+  const guard = await assertProjectWritable(guardSb, projectId)
+  if (!guard.ok) return guard
 
   const pickNum = (name: string, dflt: number) => {
     const v = Number.parseFloat((formData.get(name) as string | null) ?? '')

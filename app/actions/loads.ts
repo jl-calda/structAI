@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { assertProjectWritable } from '@/lib/api/archived-guard'
 import { generateCombinations } from '@/lib/loads/generator'
 import { recomputeEnvelope } from '@/lib/loads/envelope'
 import { pushCombinations, requestResync } from '@/lib/staad/bridge-client'
@@ -26,6 +27,8 @@ export async function generateCombinationsAction(args: {
   const { projectId, templateId } = args
 
   const supabase = await createClient()
+  const guard = await assertProjectWritable(supabase, projectId)
+  if (!guard.ok) return guard
 
   // Load the template and current STAAD load cases in parallel.
   const [templateResp, casesResp] = await Promise.all([
@@ -131,6 +134,9 @@ export type RecomputeEnvelopeOutcome =
 export async function recomputeEnvelopeAction(
   projectId: string,
 ): Promise<RecomputeEnvelopeOutcome> {
+  const supabase = await createClient()
+  const guard = await assertProjectWritable(supabase, projectId)
+  if (!guard.ok) return guard
   try {
     const res = await recomputeEnvelope(projectId)
     revalidatePath(`/projects/${projectId}`)

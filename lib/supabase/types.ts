@@ -124,6 +124,10 @@ export type Database = {
           aggregate_type: string
           lightweight_lambda: number
           engineer_name: string
+          archived_at: string | null
+          archived_from_project_id: string | null
+          active_staad_hash: string | null
+          active_staad_file_name: string | null
         }
         Insert: {
           id?: string
@@ -144,6 +148,10 @@ export type Database = {
           aggregate_type?: string
           lightweight_lambda?: number
           engineer_name?: string
+          archived_at?: string | null
+          archived_from_project_id?: string | null
+          active_staad_hash?: string | null
+          active_staad_file_name?: string | null
         }
         Update: {
           id?: string
@@ -164,6 +172,10 @@ export type Database = {
           aggregate_type?: string
           lightweight_lambda?: number
           engineer_name?: string
+          archived_at?: string | null
+          archived_from_project_id?: string | null
+          active_staad_hash?: string | null
+          active_staad_file_name?: string | null
         }
         Relationships: []
       }
@@ -1489,7 +1501,16 @@ export type Database = {
       }
     }
     Views: { [_ in never]: never }
-    Functions: { [_ in never]: never }
+    Functions: {
+      switch_project_staad: {
+        Args: {
+          p_project_id: string
+          p_incoming_hash: string
+          p_incoming_file: string
+        }
+        Returns: { archive_id: string; archive_name: string }[]
+      }
+    }
     Enums: { [_ in never]: never }
     CompositeTypes: { [_ in never]: never }
   }

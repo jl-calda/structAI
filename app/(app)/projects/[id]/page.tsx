@@ -6,9 +6,10 @@
 import { SyncBanner } from '@/components/layout/SyncBanner'
 import { FrameViewer3D, type MemberAssignment } from '@/components/staad/FrameViewer3D'
 import { StaadDataView } from '@/components/staad/StaadDataView'
+import { StaadVersionsPanel } from '@/components/staad/StaadVersionsPanel'
 import { listBeamDesigns } from '@/lib/data/beams'
 import { listColumnDesigns } from '@/lib/data/columns'
-import { getProject } from '@/lib/data/projects'
+import { getProject, listStaadVersions } from '@/lib/data/projects'
 import {
   getLatestSync,
   listCombinations,
@@ -40,7 +41,7 @@ export default async function OverviewPage({
   const [
     latest, members, nodes, beamDesigns, columnDesigns,
     sections, materials, loadCases, combinations, envelope, reactions,
-    displacements, diagramPoints, endForces, deflections,
+    displacements, diagramPoints, endForces, deflections, staadVersions,
   ] = await Promise.all([
     getLatestSync(id),
     listMembers(id),
@@ -57,6 +58,7 @@ export default async function OverviewPage({
     listDiagramPoints(id, 5000),
     listEndForces(id, 5000),
     listDeflections(id, 5000),
+    listStaadVersions(id),
   ])
 
   const beamCount = members.filter((m) => m.member_type === 'beam').length
@@ -78,6 +80,12 @@ export default async function OverviewPage({
   return (
     <div className="flex flex-col gap-4">
       <SyncBanner latest={latest} />
+
+      <StaadVersionsPanel
+        projectId={id}
+        rows={staadVersions.rows}
+        mismatchIncoming={staadVersions.mismatchIncoming}
+      />
 
       <section className="grid grid-cols-4 gap-3">
         <StatCard tone="amber" label="Beams" count={beamCount} />
