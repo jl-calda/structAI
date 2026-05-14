@@ -595,19 +595,20 @@ class _Passthrough:
     def intermediate_member_forces(self, beam: int, dist_model: float, lc: int) -> Optional[List[float]]:
         """Get forces at an intermediate distance along a member.
 
-        Uses the wrapper's __getattr__ path (proven to work in the probe)
-        rather than _invoke — for an unknown reason, _invoke's dispatch
-        returns zeros while the wrapper's identical call returns real values.
+        Carbon-copy of the PROBE code that returned real values:
+        fresh imports, fresh SAFEARRAY, wrapper __getattr__, x.value[0].
         """
-        if not self._ok:
-            return None
         try:
-            safe = self._make_dbl_arr(6)
-            pd = self._make_ref(safe, self._automation.VT_ARRAY | self._automation.VT_R8)
+            from openstaad.tools import make_safe_array_double, make_variant_vt_ref  # type: ignore
+            from comtypes import automation as _aut  # type: ignore
+            safe = make_safe_array_double(6)
+            x = make_variant_vt_ref(safe, _aut.VT_ARRAY | _aut.VT_R8)
             self._wrapper.GetIntermediateMemberForcesAtDistance(
-                int(beam), float(dist_model), int(lc), pd)
-            result = self._read6(pd)
-            return result
+                int(beam), float(dist_model), int(lc), x)
+            raw = x.value[0]
+            if raw is not None:
+                return _as_float_list(raw, 6)
+            return [0.0] * 6
         except Exception as e:
             self._note_error(e)
             self._log.debug("GetIntermediateMemberForcesAtDistance(beam=%d, d=%.4f, lc=%d): %s",
@@ -1181,6 +1182,22 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
             mz_knm=mz_knm, vy_kn=vy_kn, n_kn=n_kn, my_knm=my_knm, vz_kn=vz_kn))
         envelope_map[mid].update(combo=combo, mz_knm=mz_knm, vy_kn=vy_kn, n_kn=n_kn, my_knm=my_knm)
 
+    # Import once for the diagram loop (same imports the working PROBE uses).
+    from openstaad.tools import make_safe_array_double as _mk_dbl, make_variant_vt_ref as _mk_ref  # type: ignore
+    from comtypes import automation as _aut  # type: ignore
+    _VT_ARR_R8 = _aut.VT_ARRAY | _aut.VT_R8
+
+    def _intermediate_forces(beam, dist, lc):
+        """Inline COM call — exact replica of the working PROBE DIRECT code."""
+        try:
+            sa = _mk_dbl(6)
+            v = _mk_ref(sa, _VT_ARR_R8)
+            output.GetIntermediateMemberForcesAtDistance(int(beam), float(dist), int(lc), v)
+            raw = v.value[0]
+            return _as_float_list(raw, 6) if raw is not None else [0.0] * 6
+        except Exception:
+            return None
+
     for mid in member_ids:
         len_mm = member_length_mm.get(mid, 0.0)
         len_model = len_mm / units.len_to_mm if units.len_to_mm else 0.0
@@ -1194,7 +1211,7 @@ def _read_real_model(project_id: str, file_path: Optional[Path]) -> SyncPayload:
                 interior = []
                 for s in range(1, N_SAMPLES - 1):
                     dist = len_model * (s / (N_SAMPLES - 1))
-                    fi = passthrough.intermediate_member_forces(mid, dist, combo)
+                    fi = _intermediate_forces(mid, dist, combo)
                     if fi is None:
                         interior = None
                         break
