@@ -28,6 +28,7 @@ export async function listProjects(): Promise<DashboardProject[]> {
   const { data: projects, error } = await supabase
     .from('projects')
     .select('*')
+    .is('archived_at', null)
     .order('updated_at', { ascending: false })
   if (error) throw new Error(`listProjects: ${error.message}`)
   if (!projects || projects.length === 0) return []
@@ -98,7 +99,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 
   const [projectsResp, beamsResp, columnsResp, slabsResp, footingsResp, reportsResp] =
     await Promise.all([
-      supabase.from('projects').select('id'),
+      supabase.from('projects').select('id').is('archived_at', null),
       supabase.from('beam_designs').select('design_status'),
       supabase.from('column_designs').select('design_status'),
       supabase.from('slab_designs').select('design_status'),
@@ -170,7 +171,7 @@ export async function listRecentActivity(limit = 25): Promise<ActivityEvent[]> {
 
   const [projectsResp, syncsResp, beamsResp, colsResp, slabsResp, footsResp, reportsResp] =
     await Promise.all([
-      supabase.from('projects').select('id, name'),
+      supabase.from('projects').select('id, name').is('archived_at', null),
       supabase
         .from('staad_syncs')
         .select('project_id, synced_at, file_name, mismatch_detected, status')
@@ -317,5 +318,145 @@ export async function listProjectCards(): Promise<ProjectCardStats[]> {
     slabs: slabMap.get(p.id) ?? zero,
     footings: footMap.get(p.id) ?? zero,
   }))
+}
+
+// ---------------------------------------------------------------------------
+// STAAD version rollup for the project page
+// ---------------------------------------------------------------------------
+
+export type StaadVersionRow = {
+  kind: 'active' | 'archived' | 'mismatch'
+  project_id: string
+  archive_project_id: string | null
+  file_name: string
+  file_hash: string
+  first_synced_at: string | null
+  last_synced_at: string | null
+  sync_count: number
+}
+
+export type StaadVersions = {
+  rows: StaadVersionRow[]
+  hasMismatch: boolean
+  mismatchIncoming: { file_name: string; file_hash: string } | null
+}
+
+export async function listStaadVersions(projectId: string): Promise<StaadVersions> {
+  const supabase = await createClient()
+
+  const project = await getProject(projectId)
+  if (!project) return { rows: [], hasMismatch: false, mismatchIncoming: null }
+
+  // Pull all syncs for the live project + every archive that originated
+  // from it. Aggregate per (project_id, file_hash) in-memory.
+  const { data: archives, error: archErr } = await supabase
+    .from('projects')
+    .select(
+      'id, name, archived_at, active_staad_hash, active_staad_file_name',
+    )
+    .eq('archived_from_project_id', projectId)
+    .not('archived_at', 'is', null)
+    .order('archived_at', { ascending: false })
+  if (archErr) throw new Error(`listStaadVersions archives: ${archErr.message}`)
+
+  const projectIds = [projectId, ...(archives ?? []).map((a) => a.id)]
+
+  const { data: syncs, error: syncErr } = await supabase
+    .from('staad_syncs')
+    .select('project_id, file_hash, file_name, status, synced_at')
+    .in('project_id', projectIds)
+    .order('synced_at', { ascending: false })
+  if (syncErr) throw new Error(`listStaadVersions syncs: ${syncErr.message}`)
+
+  // Group OK-status syncs by (project_id, file_hash) for the version rows.
+  type Agg = {
+    file_name: string
+    file_hash: string
+    first: string
+    last: string
+    count: number
+  }
+  const okAgg = new Map<string, Agg>()
+  for (const s of syncs ?? []) {
+    if (s.status !== 'ok') continue
+    const k = `${s.project_id}::${s.file_hash}`
+    const a = okAgg.get(k)
+    if (!a) {
+      okAgg.set(k, {
+        file_name: s.file_name,
+        file_hash: s.file_hash,
+        first: s.synced_at,
+        last: s.synced_at,
+        count: 1,
+      })
+    } else {
+      a.count += 1
+      if (s.synced_at < a.first) a.first = s.synced_at
+      if (s.synced_at > a.last) a.last = s.synced_at
+    }
+  }
+
+  const rows: StaadVersionRow[] = []
+
+  // Active row (live project's current pinned hash).
+  if (project.active_staad_hash) {
+    const k = `${projectId}::${project.active_staad_hash}`
+    const a = okAgg.get(k)
+    rows.push({
+      kind: 'active',
+      project_id: projectId,
+      archive_project_id: null,
+      file_name: project.active_staad_file_name ?? a?.file_name ?? '—',
+      file_hash: project.active_staad_hash,
+      first_synced_at: a?.first ?? null,
+      last_synced_at: a?.last ?? null,
+      sync_count: a?.count ?? 0,
+    })
+  }
+
+  // Archived rows.
+  for (const ar of archives ?? []) {
+    if (!ar.active_staad_hash) continue
+    const k = `${ar.id}::${ar.active_staad_hash}`
+    const a = okAgg.get(k)
+    rows.push({
+      kind: 'archived',
+      project_id: projectId,
+      archive_project_id: ar.id,
+      file_name: ar.active_staad_file_name ?? a?.file_name ?? '—',
+      file_hash: ar.active_staad_hash,
+      first_synced_at: a?.first ?? null,
+      last_synced_at: a?.last ?? null,
+      sync_count: a?.count ?? 0,
+    })
+  }
+
+  // Mismatch row — most recent 'mismatch' status on the LIVE project that
+  // is still distinct from the active hash.
+  let mismatchIncoming: StaadVersions['mismatchIncoming'] = null
+  const latestMismatch = (syncs ?? []).find(
+    (s) =>
+      s.project_id === projectId &&
+      s.status === 'mismatch' &&
+      s.file_hash !== project.active_staad_hash,
+  )
+  if (latestMismatch) {
+    mismatchIncoming = {
+      file_name: latestMismatch.file_name,
+      file_hash: latestMismatch.file_hash,
+    }
+    rows.unshift({
+      kind: 'mismatch',
+      project_id: projectId,
+      archive_project_id: null,
+      file_name: latestMismatch.file_name,
+      file_hash: latestMismatch.file_hash,
+      first_synced_at: null,
+      last_synced_at: latestMismatch.synced_at,
+      sync_count: 0,
+    })
+  }
+
+  return { rows, hasMismatch: !!mismatchIncoming, mismatchIncoming }
 }
 

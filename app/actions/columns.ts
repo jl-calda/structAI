@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 
+import { assertProjectWritable } from '@/lib/api/archived-guard'
 import { env as clientEnv } from '@/lib/env'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -26,6 +27,10 @@ export async function createColumnDesignAction(
 
   if (!projectId) return { ok: false, error: 'project_id is required' }
   if (!label) return { ok: false, error: 'Label is required (e.g. C-1)' }
+
+  const guardSb = await createClient()
+  const guard = await assertProjectWritable(guardSb, projectId)
+  if (!guard.ok) return guard
 
   const pickNum = (name: string, dflt: number) => {
     const v = Number.parseFloat((formData.get(name) as string | null) ?? '')

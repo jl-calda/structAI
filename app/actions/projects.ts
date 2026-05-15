@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
+import { assertProjectWritable } from '@/lib/api/archived-guard'
 import { createClient } from '@/lib/supabase/server'
 import type { CodeStandard } from '@/lib/supabase/types'
 
@@ -60,6 +61,8 @@ export async function setProjectCodeStandardAction(
     return { ok: false, error: 'Invalid code standard.' }
   }
   const supabase = await createClient()
+  const guard = await assertProjectWritable(supabase, projectId)
+  if (!guard.ok) return guard
   const { error } = await supabase
     .from('projects')
     .update({ code_standard: next })
@@ -89,6 +92,8 @@ export async function updateProjectDefaultsAction(
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient()
+  const guard = await assertProjectWritable(supabase, projectId)
+  if (!guard.ok) return guard
   const { error } = await supabase
     .from('projects')
     .update(defaults)

@@ -20,6 +20,13 @@ class SyncResult:
     status_code: int
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    # When the app rejects the sync with HTTP 409 — either because the
+    # project is archived (terminal) or because the open STAAD file
+    # doesn't match the project's pinned hash (user must explicitly
+    # "Change STAAD" in the UI before we'll be accepted again). The
+    # bridge loop should treat both as terminal: keep reporting the
+    # status but stop retrying on a tight loop.
+    terminal: bool = False
 
 
 def post_sync(app_url: str, bridge_secret: str, payload: SyncPayload) -> SyncResult:
@@ -38,6 +45,16 @@ def post_sync(app_url: str, bridge_secret: str, payload: SyncPayload) -> SyncRes
         body = r.json()
     except ValueError:
         body = {"ok": False, "error": r.text}
+
+    if r.status_code == 409:
+        err = body.get("error") or f"HTTP {r.status_code}"
+        return SyncResult(
+            ok=False,
+            status_code=r.status_code,
+            error=err,
+            data=body,
+            terminal=True,
+        )
 
     if r.status_code >= 400 or not body.get("ok"):
         return SyncResult(
