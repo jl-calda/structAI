@@ -381,16 +381,41 @@ export function FrameViewer3D({
     }
   }, [nodes, yaw, pitch, zoom, panX, panY])
 
-  /* ----- pointer handlers ----- */
+  /* ----- pointer handlers -----
+   * We deliberately delay engaging drag mode (and pointer capture) until
+   * the pointer has moved past a small threshold. Capturing on pointerdown
+   * stole subsequent events from child <g> members and prevented the
+   * native click from firing on them — breaking member-click selection.
+   */
+  const pointerDown = useRef<{ x: number; y: number; id: number; pointerId: number } | null>(null)
+  const DRAG_THRESHOLD_PX = 3
+
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    dragging.current = true
+    pointerDown.current = {
+      x: e.clientX,
+      y: e.clientY,
+      id: Date.now(),
+      pointerId: e.pointerId,
+    }
     shifting.current = e.shiftKey
     lastPointer.current = { x: e.clientX, y: e.clientY }
-    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
   }, [])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    // Engage drag only after motion exceeds the threshold — otherwise
+    // the press is treated as a click and bubbles to member <g> handlers.
+    if (!dragging.current && pointerDown.current) {
+      const dx = e.clientX - pointerDown.current.x
+      const dy = e.clientY - pointerDown.current.y
+      if (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX) {
+        dragging.current = true
+        ;(e.currentTarget as Element).setPointerCapture(
+          pointerDown.current.pointerId,
+        )
+      }
+    }
     if (!dragging.current) return
+
     const dx = e.clientX - lastPointer.current.x
     const dy = e.clientY - lastPointer.current.y
     lastPointer.current = { x: e.clientX, y: e.clientY }
@@ -407,6 +432,7 @@ export function FrameViewer3D({
   }, [])
 
   const handlePointerUp = useCallback(() => {
+    pointerDown.current = null
     dragging.current = false
     shifting.current = false
   }, [])
