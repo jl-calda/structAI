@@ -5,6 +5,7 @@ import { NewColumnForm } from '@/components/columns/NewColumnForm'
 import { Tag } from '@/components/ui/Tag'
 import { listColumnDesigns } from '@/lib/data/columns'
 import { getProject } from '@/lib/data/projects'
+import { listMembers, listNodes } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +17,11 @@ export default async function ColumnsPage({
   const { id } = await params
   const project = await getProject(id)
   if (!project) notFound()
-  const columns = await listColumnDesigns(id)
+  const [columns, nodes, members] = await Promise.all([
+    listColumnDesigns(id),
+    listNodes(id),
+    listMembers(id),
+  ])
 
   const counts = {
     total: columns.length,
@@ -39,66 +44,66 @@ export default async function ColumnsPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-3">
-        <section className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>
-              Columns
-            </span>
-          </div>
-          {columns.length === 0 ? (
-            <div className="cb text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
-              No column designs yet. Create one from the form on the right.
-            </div>
-          ) : (
-            <table className="t">
-              <thead>
-                <tr>
-                  <th>Label</th>
-                  <th>Section</th>
-                  <th className="!text-right">Height (mm)</th>
-                  <th>Members</th>
-                  <th>Status</th>
-                  <th className="!text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {columns.map((c) => (
-                  <tr key={c.id}>
-                    <td className="mono font-semibold">{c.label}</td>
-                    <td className="mono">{c.section_name}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>
-                      {c.height_mm.toFixed(0)}
-                    </td>
-                    <td className="mono">[{c.member_ids.join(', ')}]</td>
-                    <td><StatusTag status={c.design_status} /></td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Link
-                        href={`/projects/${id}/columns/${c.id}`}
-                        className="rounded px-2 py-1 text-[11.5px] font-semibold"
-                        style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
-                      >
-                        Open
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+      <NewColumnForm
+        projectId={id}
+        nodes={nodes}
+        members={members}
+        defaults={{
+          fc_mpa: project.default_fc_mpa,
+          fy_mpa: project.default_fy_mpa,
+          fys_mpa: project.default_fys_mpa,
+          clear_cover_mm: project.default_clear_cover_mm,
+        }}
+      />
 
-        <NewColumnForm
-          projectId={id}
-          defaults={{
-            fc_mpa: project.default_fc_mpa,
-            fy_mpa: project.default_fy_mpa,
-            fys_mpa: project.default_fys_mpa,
-            clear_cover_mm: project.default_clear_cover_mm,
-          }}
-        />
-      </div>
+      <section className="card">
+        <div className="ch">
+          <span className="text-[11.5px] font-semibold uppercase tracking-wider"
+                style={{ color: 'var(--color-text2)' }}>
+            Columns
+          </span>
+        </div>
+        {columns.length === 0 ? (
+          <div className="cb text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
+            No column designs yet. Create one from the form above.
+          </div>
+        ) : (
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Section</th>
+                <th className="!text-right">Height (mm)</th>
+                <th>Members</th>
+                <th>Status</th>
+                <th className="!text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {columns.map((c) => (
+                <tr key={c.id}>
+                  <td className="mono font-semibold">{c.label}</td>
+                  <td className="mono">{c.section_name}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>
+                    {c.height_mm.toFixed(0)}
+                  </td>
+                  <td className="mono">[{c.member_ids.join(', ')}]</td>
+                  <td><StatusTag status={c.design_status} /></td>
+                  <td style={{ textAlign: 'right' }}>
+                    <Link
+                      href={`/projects/${id}/columns/${c.id}`}
+                      className="rounded px-2 py-1 text-[11.5px] font-semibold"
+                      style={{ border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+                    >
+                      Open
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
     </div>
   )
 }

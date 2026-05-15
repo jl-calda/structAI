@@ -33,7 +33,7 @@ import { getCode } from '@/lib/engineering/codes'
 import { buildPmCurve } from '@/lib/engineering/concrete/column/interaction'
 import { getColumnDesign } from '@/lib/data/columns'
 import { getProject } from '@/lib/data/projects'
-import { getLatestSync, listMembers } from '@/lib/data/staad'
+import { getLatestSync, listMembers, listNodes } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,11 +43,12 @@ export default async function ColumnDesignPage({
   params: Promise<{ id: string; columnId: string }>
 }) {
   const { id: projectId, columnId } = await params
-  const [project, result, latest, allMembers] = await Promise.all([
+  const [project, result, latest, allMembers, allNodes] = await Promise.all([
     getProject(projectId),
     getColumnDesign(columnId),
     getLatestSync(projectId),
     listMembers(projectId),
+    listNodes(projectId),
   ])
   if (!project || !result) notFound()
 
@@ -179,6 +180,8 @@ export default async function ColumnDesignPage({
             length_mm: m.length_mm,
             member_type: m.member_type,
           }))}
+          allMemberRows={allMembers}
+          allNodes={allNodes}
           designLabel={design.label}
         />
 
