@@ -16,7 +16,7 @@ import { Icon } from '@/components/ui/Icon'
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type NodeLite = {
+export type NodeLite = {
   id: string
   node_id: number
   x_mm: number
@@ -25,7 +25,7 @@ type NodeLite = {
   support_type: string | null
 }
 
-type MemberLite = {
+export type MemberLite = {
   id: string
   member_id: number
   start_node_id: number
@@ -45,10 +45,14 @@ type FrameViewer3DProps = {
   assignments: Record<number, MemberAssignment>
   projectId: string
   selectedMemberId?: number | null
+  selectedMemberIds?: ReadonlySet<number>
   selectedNodeId?: number | null
   onMemberSelect?: (memberId: number) => void
+  onMemberToggle?: (memberId: number) => void
   onNodeSelect?: (nodeId: number) => void
   onSnapshot?: (blob: Blob) => void
+  /** Members rendered faded and unclickable (e.g. wrong type for current picker). */
+  dimmedMemberIds?: ReadonlySet<number>
 }
 
 /* ------------------------------------------------------------------ */
@@ -272,10 +276,13 @@ export function FrameViewer3D({
   assignments,
   projectId,
   selectedMemberId = null,
+  selectedMemberIds,
   selectedNodeId = null,
   onMemberSelect,
+  onMemberToggle,
   onNodeSelect,
   onSnapshot,
+  dimmedMemberIds,
 }: FrameViewer3DProps) {
   /* ----- state ----- */
   const [yaw, setYaw] = useState(DEFAULT_YAW)
@@ -533,9 +540,16 @@ export function FrameViewer3D({
             const [x1, y1] = project(a.x_mm, a.y_mm, a.z_mm)
             const [x2, y2] = project(b.x_mm, b.y_mm, b.z_mm)
             const assignment = assignments[m.member_id]
-            const isSelected = selectedMemberId === m.member_id
-            const isHovered = hoverMemberId === m.member_id
+            const isDimmed = dimmedMemberIds?.has(m.member_id) ?? false
+            const isSelected =
+              !isDimmed &&
+              (selectedMemberId === m.member_id ||
+                (selectedMemberIds?.has(m.member_id) ?? false))
+            const isHovered = !isDimmed && hoverMemberId === m.member_id
             const color = memberColor(m.member_type)
+            const clickable = !isDimmed && (
+              !!onMemberToggle || !!onMemberSelect || !!assignment
+            )
 
             const strokeW = m.member_type === 'column' ? 2.5 : 2
             const activeW = isSelected ? 4 : isHovered ? 3.5 : strokeW
@@ -548,13 +562,15 @@ export function FrameViewer3D({
             const lineEl = (
               <g
                 key={m.id}
-                onMouseEnter={() => setHoverMemberId(m.member_id)}
+                onMouseEnter={() => !isDimmed && setHoverMemberId(m.member_id)}
                 onMouseLeave={() => setHoverMemberId(null)}
                 onClick={(e) => {
+                  if (isDimmed) return
                   e.stopPropagation()
-                  onMemberSelect?.(m.member_id)
+                  if (onMemberToggle) onMemberToggle(m.member_id)
+                  else onMemberSelect?.(m.member_id)
                 }}
-                style={{ cursor: assignment ? 'pointer' : 'default' }}
+                style={{ cursor: clickable ? 'pointer' : 'default', opacity: isDimmed ? 0.25 : 1 }}
               >
                 {/* Glow filter for hover */}
                 {isHovered && (
@@ -599,8 +615,9 @@ export function FrameViewer3D({
               </g>
             )
 
-            // Wrap assigned members in Link for click-through
-            if (assignment && !onMemberSelect) {
+            // Wrap assigned members in Link for click-through, but only when
+            // the viewer isn't acting as a picker (no select / toggle handler).
+            if (assignment && !onMemberSelect && !onMemberToggle && !isDimmed) {
               return (
                 <Link
                   key={m.id}

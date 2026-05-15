@@ -5,6 +5,7 @@ import { NewBeamForm } from '@/components/beams/NewBeamForm'
 import { Tag } from '@/components/ui/Tag'
 import { listBeamDesigns } from '@/lib/data/beams'
 import { getProject } from '@/lib/data/projects'
+import { listMembers, listNodes } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +17,11 @@ export default async function BeamsPage({
   const { id } = await params
   const project = await getProject(id)
   if (!project) notFound()
-  const beams = await listBeamDesigns(id)
+  const [beams, nodes, members] = await Promise.all([
+    listBeamDesigns(id),
+    listNodes(id),
+    listMembers(id),
+  ])
 
   const counts = {
     total: beams.length,
@@ -40,69 +45,69 @@ export default async function BeamsPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-3">
-        <section className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>
-              Beams
-            </span>
-          </div>
-          {beams.length === 0 ? (
-            <div className="cb text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
-              No beam designs yet. Create one from the form on the right — link it to one or more STAAD members.
-            </div>
-          ) : (
-            <table className="t">
-              <thead>
-                <tr>
-                  <th>Label</th>
-                  <th>Section</th>
-                  <th className="!text-right">Span (mm)</th>
-                  <th>Members</th>
-                  <th>Status</th>
-                  <th className="!text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {beams.map((b) => (
-                  <tr key={b.id}>
-                    <td className="mono font-semibold">{b.label}</td>
-                    <td className="mono">{b.section_name}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>
-                      {b.total_span_mm.toFixed(0)}
-                    </td>
-                    <td className="mono">[{b.member_ids.join(', ')}]</td>
-                    <td><StatusTag status={b.design_status} /></td>
-                    <td style={{ textAlign: 'right' }}>
-                      <Link
-                        href={`/projects/${id}/beams/${b.id}`}
-                        className="rounded px-2 py-1 text-[11.5px] font-semibold"
-                        style={{
-                          border: '1px solid var(--color-border)',
-                          color: 'var(--color-text)',
-                        }}
-                      >
-                        Open
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
+      <NewBeamForm
+        projectId={id}
+        nodes={nodes}
+        members={members}
+        defaults={{
+          fc_mpa: project.default_fc_mpa,
+          fy_mpa: project.default_fy_mpa,
+          fys_mpa: project.default_fys_mpa,
+          clear_cover_mm: project.default_clear_cover_mm,
+        }}
+      />
 
-        <NewBeamForm
-          projectId={id}
-          defaults={{
-            fc_mpa: project.default_fc_mpa,
-            fy_mpa: project.default_fy_mpa,
-            fys_mpa: project.default_fys_mpa,
-            clear_cover_mm: project.default_clear_cover_mm,
-          }}
-        />
-      </div>
+      <section className="card">
+        <div className="ch">
+          <span className="text-[11.5px] font-semibold uppercase tracking-wider"
+                style={{ color: 'var(--color-text2)' }}>
+            Beams
+          </span>
+        </div>
+        {beams.length === 0 ? (
+          <div className="cb text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
+            No beam designs yet. Create one from the form above — link it to one or more STAAD members.
+          </div>
+        ) : (
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Section</th>
+                <th className="!text-right">Span (mm)</th>
+                <th>Members</th>
+                <th>Status</th>
+                <th className="!text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {beams.map((b) => (
+                <tr key={b.id}>
+                  <td className="mono font-semibold">{b.label}</td>
+                  <td className="mono">{b.section_name}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>
+                    {b.total_span_mm.toFixed(0)}
+                  </td>
+                  <td className="mono">[{b.member_ids.join(', ')}]</td>
+                  <td><StatusTag status={b.design_status} /></td>
+                  <td style={{ textAlign: 'right' }}>
+                    <Link
+                      href={`/projects/${id}/beams/${b.id}`}
+                      className="rounded px-2 py-1 text-[11.5px] font-semibold"
+                      style={{
+                        border: '1px solid var(--color-border)',
+                        color: 'var(--color-text)',
+                      }}
+                    >
+                      Open
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
     </div>
   )
 }

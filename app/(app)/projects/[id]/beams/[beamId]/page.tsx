@@ -28,7 +28,7 @@ import {
   getBeamStitchedDiagram,
 } from '@/lib/data/beams'
 import { getProject } from '@/lib/data/projects'
-import { getLatestSync, listMembers } from '@/lib/data/staad'
+import { getLatestSync, listMembers, listNodes } from '@/lib/data/staad'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,11 +38,12 @@ export default async function BeamDesignPage({
   params: Promise<{ id: string; beamId: string }>
 }) {
   const { id: projectId, beamId } = await params
-  const [result, project, latest, allMembers] = await Promise.all([
+  const [result, project, latest, allMembers, allNodes] = await Promise.all([
     getBeamDesign(beamId),
     getProject(projectId),
     getLatestSync(projectId),
     listMembers(projectId),
+    listNodes(projectId),
   ])
   if (!result || !project) notFound()
 
@@ -140,6 +141,8 @@ export default async function BeamDesignPage({
             length_mm: m.length_mm,
             member_type: m.member_type,
           }))}
+          allMemberRows={allMembers}
+          allNodes={allNodes}
           designLabel={design.label}
         />
 

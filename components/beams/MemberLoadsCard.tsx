@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
+import type { MemberLite, NodeLite } from '@/components/staad/FrameViewer3D'
+import { MemberPicker3D } from '@/components/staad/MemberPicker3D'
+import type { MemberRow, NodeRow } from '@/lib/data/staad'
 
 /**
  * Step 1b — Member Definition & Loads for beams.
@@ -44,6 +47,8 @@ export type BeamMemberLoadsCardProps = {
   projectId: string
   initialMemberIds: number[]
   allMembers: MemberInfo[]
+  allMemberRows: MemberRow[]
+  allNodes: NodeRow[]
   designLabel: string
 }
 
@@ -51,6 +56,8 @@ export function BeamMemberLoadsCard({
   projectId,
   initialMemberIds,
   allMembers,
+  allMemberRows,
+  allNodes,
   designLabel,
 }: BeamMemberLoadsCardProps) {
   const [mode, setMode] = useState<'staad' | 'live' | 'manual'>(initialMemberIds.length > 0 ? 'staad' : 'manual')
@@ -431,11 +438,13 @@ export function BeamMemberLoadsCard({
                       onChange={e => setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, label: e.target.value } : i))} />
                   </td>
                   <td>
-                    <MemberPicker
+                    <MemberPicker3D
+                      projectId={projectId}
+                      nodes={allNodes as NodeLite[]}
+                      members={allMemberRows as MemberLite[]}
                       available={beamMembers}
                       selected={inst.memberIds}
                       onChange={ids => updateMemberIds(inst.id, ids)}
-                      projectId={projectId}
                       bridgeOnline={bridgeOnline}
                     />
                   </td>
@@ -496,214 +505,6 @@ export function BeamMemberLoadsCard({
   )
 }
 
-function MemberPicker({
-  available,
-  selected,
-  onChange,
-  projectId,
-  bridgeOnline,
-}: {
-  available: MemberInfo[]
-  selected: number[]
-  onChange: (ids: number[]) => void
-  projectId: string
-  bridgeOnline: boolean | null
-}) {
-  const [open, setOpen] = useState(false)
-  const [fetching, setFetching] = useState(false)
-
-  const getHighlighted = async () => {
-    setFetching(true)
-    try {
-      const res = await fetch('/api/bridge/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'selected', project_id: projectId }),
-      })
-      const json = await res.json()
-      if (json.ok && json.members?.length > 0) {
-        const ids = json.members.map((m: MemberInfo) => m.member_id)
-        onChange([...new Set([...selected, ...ids])])
-      }
-    } catch { /* bridge offline */ }
-    setFetching(false)
-  }
-  const [filter, setFilter] = useState('')
-  const [inputVal, setInputVal] = useState('')
-
-  const removeMember = (id: number) => {
-    onChange(selected.filter(x => x !== id))
-  }
-
-  const toggleMember = (id: number) => {
-    if (selected.includes(id)) {
-      onChange(selected.filter(x => x !== id))
-    } else {
-      onChange([...selected, id])
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && inputVal.trim()) {
-      const ids = inputVal.split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0)
-      onChange([...new Set([...selected, ...ids])])
-      setInputVal('')
-    }
-  }
-
-  const filtered = filter
-    ? available.filter(m =>
-      m.member_id.toString().includes(filter) ||
-      m.section_name.toLowerCase().includes(filter.toLowerCase()),
-    )
-    : available
-
-  // Group by section name for easier browsing
-  const sections = [...new Set(filtered.map(m => m.section_name))]
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center', position: 'relative' }}>
-      {selected.map(id => {
-        const m = available.find(a => a.member_id === id)
-        return (
-          <span key={id} className="tag" style={{ fontSize: 9, padding: '0 4px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <span className="mono">{id}</span>
-            {m && <span style={{ color: 'var(--color-ink-4)', fontSize: 8 }}>{m.section_name} · {m.length_mm}mm</span>}
-            <button type="button" onClick={() => removeMember(id)}
-              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 10, padding: 0, lineHeight: 1 }}>
-              ×
-            </button>
-          </span>
-        )
-      })}
-
-      <button type="button" onClick={() => setOpen(!open)}
-        className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px' }}>
-        <Icon name="plus" size={8} /> Choose members
-      </button>
-
-      {bridgeOnline && (
-        <button type="button" onClick={getHighlighted} disabled={fetching}
-          className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px', background: 'var(--color-sel-bg, #E8F0FA)', borderColor: 'var(--color-sel, #2563AB)', color: 'var(--color-sel, #2563AB)' }}>
-          {fetching ? '…' : <><Icon name="sync" size={8} /> Get highlighted</>}
-        </button>
-      )}
-
-      <input
-        className="input"
-        placeholder="or type IDs…"
-        value={inputVal}
-        onChange={e => setInputVal(e.target.value)}
-        onKeyDown={handleKeyDown}
-        style={{ width: 80, height: 18, fontSize: 10, padding: '0 4px' }}
-      />
-
-      {/* Dropdown panel */}
-      {open && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, zIndex: 20,
-          width: 420, maxHeight: 280, overflow: 'hidden',
-          background: 'var(--color-panel)', border: '1px solid var(--color-line)',
-          borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-          display: 'flex', flexDirection: 'column',
-        }}>
-          {/* Search + actions */}
-          <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <Icon name="search" size={10} />
-            <input
-              className="input"
-              placeholder="Filter by ID or section…"
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-              autoFocus
-              style={{ flex: 1, height: 22, fontSize: 11 }}
-            />
-            <span className="mono" style={{ fontSize: 9, color: 'var(--color-ink-4)' }}>
-              {selected.length} sel
-            </span>
-            <button type="button" onClick={() => setOpen(false)}
-              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-ink-3)', fontSize: 14 }}>
-              ×
-            </button>
-          </div>
-
-          {/* Member list grouped by section */}
-          <div style={{ overflow: 'auto', flex: 1 }}>
-            {sections.length === 0 ? (
-              <div style={{ padding: 12, fontSize: 11, color: 'var(--color-ink-4)' }}>No members found</div>
-            ) : sections.map(sec => {
-              const membersInSec = filtered.filter(m => m.section_name === sec)
-              const allSelected = membersInSec.every(m => selected.includes(m.member_id))
-              const someSelected = membersInSec.some(m => selected.includes(m.member_id))
-
-              const toggleSection = () => {
-                const secIds = membersInSec.map(m => m.member_id)
-                if (allSelected) {
-                  onChange(selected.filter(id => !secIds.includes(id)))
-                } else {
-                  onChange([...new Set([...selected, ...secIds])])
-                }
-              }
-
-              return (
-                <div key={sec}>
-                  {/* Section header — click to select all in section */}
-                  <div
-                    onClick={toggleSection}
-                    style={{
-                      padding: '4px 8px', background: 'var(--color-bg)',
-                      borderBottom: '1px solid var(--color-line-2)',
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      cursor: 'pointer', fontSize: 10.5, fontWeight: 600,
-                      color: 'var(--color-ink-2)',
-                    }}
-                  >
-                    <input type="checkbox" checked={allSelected} readOnly
-                      style={{ pointerEvents: 'none' }}
-                      ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
-                    />
-                    <span>{sec}</span>
-                    <span className="mono" style={{ color: 'var(--color-ink-4)', fontWeight: 400, fontSize: 9 }}>
-                      {membersInSec.length} members
-                    </span>
-                  </div>
-                  {/* Individual members */}
-                  {membersInSec.map(m => (
-                    <label key={m.member_id}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '2px 8px 2px 20px', cursor: 'pointer', fontSize: 10.5,
-                        background: selected.includes(m.member_id) ? 'var(--color-sel-bg, #E8F0FA)' : 'transparent',
-                      }}
-                    >
-                      <input type="checkbox"
-                        checked={selected.includes(m.member_id)}
-                        onChange={() => toggleMember(m.member_id)}
-                      />
-                      <span className="mono" style={{ width: 36, fontWeight: 600 }}>{m.member_id}</span>
-                      <span style={{ color: 'var(--color-ink-3)', flex: 1 }}>{m.section_name}</span>
-                      <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>{m.length_mm} mm</span>
-                    </label>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Footer */}
-          <div style={{
-            padding: '4px 8px', borderTop: '1px solid var(--color-line-2)',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: 'var(--color-bg)', fontSize: 10,
-          }}>
-            <span style={{ color: 'var(--color-ink-4)' }}>{filtered.length} members · {selected.length} selected</span>
-            <button type="button" className="btn sm" onClick={() => setOpen(false)}>Done</button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 function ManualField({ label, unit, value, onChange }: {
   label: string; unit: string; value: number; onChange: (v: number) => void
