@@ -4,8 +4,9 @@
  * design modules land), frame viewer, and a placeholder Issues card.
  */
 import { SyncBanner } from '@/components/layout/SyncBanner'
-import { FrameViewer3D, type MemberAssignment } from '@/components/staad/FrameViewer3D'
+import { type MemberAssignment } from '@/components/staad/FrameViewer3D'
 import { StaadDataView } from '@/components/staad/StaadDataView'
+import { StaadOverviewInteractive } from '@/components/staad/StaadOverviewInteractive'
 import { StaadVersionsPanel } from '@/components/staad/StaadVersionsPanel'
 import { listBeamDesigns } from '@/lib/data/beams'
 import { listColumnDesigns } from '@/lib/data/columns'
@@ -94,59 +95,13 @@ export default async function OverviewPage({
         <StatCard tone="green" label="Footings" count={0} />
       </section>
 
-      <section className="grid grid-cols-[minmax(0,1fr)_320px] gap-3">
-        <div className="card">
-          <div className="ch">
-            <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--color-text2)' }}>
-              STAAD Frame
-            </span>
-            <span className="ml-auto mono text-[11px]"
-                  style={{ color: 'var(--color-text2)' }}>
-              {nodes.length} node{nodes.length === 1 ? '' : 's'} ·{' '}
-              {members.length} member{members.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <div className="cb" style={{ padding: 0 }}>
-            <FrameViewer3D
-              nodes={nodes}
-              members={members}
-              assignments={assignments}
-              projectId={id}
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-3">
-          <div className="card">
-            <div className="ch">
-              <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--color-text2)' }}>
-                Issues
-              </span>
-            </div>
-            <div className="cb text-[11.5px]" style={{ color: 'var(--color-text2)' }}>
-              {latest?.row.mismatch_detected
-                ? 'STAAD model mismatch detected — re-sync or flag designs as unverified.'
-                : 'No issues. Design modules come online in Phase 3.'}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="ch">
-              <span className="text-[11.5px] font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--color-text2)' }}>
-                Quick Actions
-              </span>
-            </div>
-            <div className="cb flex flex-col gap-1.5 text-[12px]">
-              <ActionPlaceholder label="Re-run failed designs" />
-              <ActionPlaceholder label="Assign unassigned members" />
-              <ActionPlaceholder label="Generate report" />
-            </div>
-          </div>
-        </div>
-      </section>
+      <StaadOverviewInteractive
+        projectId={id}
+        nodes={nodes}
+        members={members}
+        sections={sections}
+        assignments={assignments}
+      />
 
       <section>
         <div style={{ marginBottom: 8, display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -204,15 +159,3 @@ function StatCard({
   )
 }
 
-function ActionPlaceholder({ label }: { label: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      className="text-left rounded border px-2 py-1.5 disabled:opacity-60 cursor-not-allowed"
-      style={{ borderColor: 'var(--color-border)', color: 'var(--color-text2)' }}
-    >
-      {label}
-    </button>
-  )
-}
