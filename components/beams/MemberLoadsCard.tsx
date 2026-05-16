@@ -1,9 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
-import type { MemberLite, NodeLite } from '@/components/staad/FrameViewer3D'
-import { MemberPicker3D } from '@/components/staad/MemberPicker3D'
+import { FrameViewer3D, type MemberLite, type NodeLite } from '@/components/staad/FrameViewer3D'
 import type { MemberRow, NodeRow } from '@/lib/data/staad'
 
 /**
@@ -42,6 +41,17 @@ type InstanceData = {
 }
 
 let instanceIdCounter = 1
+
+const INSTANCE_COLORS = [
+  '#D4820F', // amber
+  '#1755A0', // blue
+  '#0D9488', // teal
+  '#7C3AED', // purple
+  '#16A34A', // green
+  '#DC2626', // red
+  '#DB2777', // pink
+  '#CA8A04', // yellow
+]
 
 export type BeamMemberLoadsCardProps = {
   projectId: string
@@ -96,6 +106,53 @@ export function BeamMemberLoadsCard({
   const [searching, setSearching] = useState(false)
 
   const beamMembers = allMembers.filter(m => m.member_type === 'beam' || m.member_type === 'BEAM')
+
+  const [activeInstanceId, setActiveInstanceId] = useState<number | null>(
+    () => instances.length > 0 ? instances[0].id : null,
+  )
+
+  const beamMemberIds = useMemo(
+    () => new Set(beamMembers.map(m => m.member_id)),
+    [beamMembers],
+  )
+  const dimmedIds = useMemo(() => {
+    const s = new Set<number>()
+    for (const m of allMemberRows) {
+      if (!beamMemberIds.has(m.member_id)) s.add(m.member_id)
+    }
+    return s
+  }, [allMemberRows, beamMemberIds])
+
+  const memberColorMap = useMemo(() => {
+    const m = new Map<number, string>()
+    instances.forEach((inst, idx) => {
+      const c = INSTANCE_COLORS[idx % INSTANCE_COLORS.length]
+      for (const mid of inst.memberIds) {
+        m.set(mid, c)
+      }
+    })
+    return m
+  }, [instances])
+
+  const activeInstance = instances.find(i => i.id === activeInstanceId) ?? null
+  const activeSelectedSet = useMemo(
+    () => new Set(activeInstance?.memberIds ?? []),
+    [activeInstance],
+  )
+
+  const handleMemberToggle = (memberId: number) => {
+    if (!beamMemberIds.has(memberId)) return
+    if (!activeInstance) {
+      addInstance()
+      return
+    }
+    const ids = activeInstance.memberIds
+    if (ids.includes(memberId)) {
+      updateMemberIds(activeInstance.id, ids.filter(id => id !== memberId))
+    } else {
+      updateMemberIds(activeInstance.id, [...ids, memberId])
+    }
+  }
 
   // Check bridge status on mount
   useEffect(() => {
@@ -175,14 +232,16 @@ export function BeamMemberLoadsCard({
 
   const addInstance = () => {
     const n = instances.length + 1
+    const newId = instanceIdCounter++
     setInstances(prev => [...prev, {
-      id: instanceIdCounter++,
+      id: newId,
       label: `${designLabel}-${n}`,
       memberIds: [],
       span_mm: 0,
       forces: null,
       loading: false,
     }])
+    setActiveInstanceId(newId)
   }
 
   const removeInstance = (id: number) => {
@@ -421,6 +480,7 @@ export function BeamMemberLoadsCard({
           <table className="t" style={{ fontSize: 11 }}>
             <thead>
               <tr>
+                <th style={{ width: 24 }}></th>
                 <th style={{ width: 100 }}>Instance</th>
                 <th>STAAD Members</th>
                 <th className="num" style={{ width: 80, textAlign: 'right' }}>Span (mm)</th>
@@ -431,22 +491,49 @@ export function BeamMemberLoadsCard({
               </tr>
             </thead>
             <tbody>
-              {instances.map(inst => (
-                <tr key={inst.id}>
-                  <td>
-                    <input className="input" value={inst.label} style={{ width: 80, height: 20, fontSize: 10.5 }}
-                      onChange={e => setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, label: e.target.value } : i))} />
+              {instances.map((inst, idx) => {
+                const instColor = INSTANCE_COLORS[idx % INSTANCE_COLORS.length]
+                const isActive = activeInstanceId === inst.id
+                return (
+                <tr key={inst.id}
+                  onClick={() => setActiveInstanceId(inst.id)}
+                  style={{
+                    cursor: 'pointer',
+                    background: isActive ? 'var(--color-sel-bg, #E8F0FA)' : undefined,
+                  }}>
+                  <td style={{ padding: '0 4px' }}>
+                    <span style={{
+                      display: 'inline-block', width: 12, height: 12, borderRadius: 2,
+                      background: instColor, border: isActive ? '2px solid var(--color-ink)' : '1px solid transparent',
+                    }} />
                   </td>
                   <td>
-                    <MemberPicker3D
-                      projectId={projectId}
-                      nodes={allNodes as NodeLite[]}
-                      members={allMemberRows as MemberLite[]}
-                      available={beamMembers}
-                      selected={inst.memberIds}
-                      onChange={ids => updateMemberIds(inst.id, ids)}
-                      bridgeOnline={bridgeOnline}
-                    />
+                    <input className="input" value={inst.label} style={{ width: 80, height: 20, fontSize: 10.5 }}
+                      onChange={e => setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, label: e.target.value } : i))}
+                      onClick={e => e.stopPropagation()} />
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                      {inst.memberIds.length === 0 && (
+                        <span style={{ fontSize: 9.5, color: 'var(--color-ink-4)', fontStyle: 'italic' }}>
+                          {isActive ? 'click members in 3D below' : 'click row to activate'}
+                        </span>
+                      )}
+                      {inst.memberIds.map(mid => (
+                        <span key={mid} className="tag" style={{
+                          fontSize: 9, padding: '0 4px', display: 'inline-flex',
+                          alignItems: 'center', gap: 2,
+                          borderLeft: `3px solid ${instColor}`,
+                        }}>
+                          <span className="mono">{mid}</span>
+                          <button type="button"
+                            onClick={e => { e.stopPropagation(); updateMemberIds(inst.id, inst.memberIds.filter(x => x !== mid)) }}
+                            style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 10, padding: 0, lineHeight: 1 }}>
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
                     <span className="mono">{inst.span_mm > 0 ? inst.span_mm.toFixed(0) : '—'}</span>
@@ -463,18 +550,18 @@ export function BeamMemberLoadsCard({
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 2 }}>
-                      <button type="button" onClick={() => refreshInstance(inst)} title="Refresh forces"
+                      <button type="button" onClick={e => { e.stopPropagation(); refreshInstance(inst) }} title="Refresh forces"
                         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-ink-3)', fontSize: 11, padding: 2 }}>
                         <Icon name="sync" size={10} />
                       </button>
-                      <button type="button" onClick={() => removeInstance(inst.id)}
+                      <button type="button" onClick={e => { e.stopPropagation(); removeInstance(inst.id) }}
                         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 13, padding: 2 }}>
                         ×
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
 
@@ -496,6 +583,40 @@ export function BeamMemberLoadsCard({
                 <span className="mono" style={{ fontWeight: 600 }}>V = {governing.vu.toFixed(1)} kN</span>
               </div>
             )}
+          </div>
+
+          {/* Shared 3D viewer — click to add/remove members from the active instance */}
+          <div style={{ borderTop: '1px solid var(--color-line-2)', position: 'relative' }}>
+            <div style={{
+              position: 'absolute', top: 4, left: 6, zIndex: 1,
+              fontSize: 10, color: 'var(--color-text2)',
+              background: 'var(--color-panel)', padding: '1px 6px',
+              border: '1px solid var(--color-border)', borderRadius: 2,
+              pointerEvents: 'none',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              {activeInstance ? (
+                <>
+                  <span style={{
+                    display: 'inline-block', width: 8, height: 8, borderRadius: 2,
+                    background: INSTANCE_COLORS[instances.indexOf(activeInstance) % INSTANCE_COLORS.length],
+                  }} />
+                  Click to add/remove from {activeInstance.label} · {activeInstance.memberIds.length} selected
+                </>
+              ) : (
+                'Select an instance row above, then click members here'
+              )}
+            </div>
+            <FrameViewer3D
+              projectId={projectId}
+              nodes={allNodes as NodeLite[]}
+              members={allMemberRows as MemberLite[]}
+              assignments={{}}
+              selectedMemberIds={activeSelectedSet}
+              memberColors={memberColorMap}
+              onMemberToggle={handleMemberToggle}
+              dimmedMemberIds={dimmedIds.size > 0 ? dimmedIds : undefined}
+            />
           </div>
           </>
           )}

@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Icon } from '@/components/ui/Icon'
+import { FrameViewer3D, type MemberLite, type NodeLite } from '@/components/staad/FrameViewer3D'
+import type { MemberRow, NodeRow } from '@/lib/data/staad'
 
 /**
  * Step 1b — Member Definition & Loads for columns.
@@ -28,10 +30,23 @@ type InstanceData = {
 
 let instanceIdCounter = 1
 
+const INSTANCE_COLORS = [
+  '#1755A0', // blue
+  '#D4820F', // amber
+  '#0D9488', // teal
+  '#7C3AED', // purple
+  '#16A34A', // green
+  '#DC2626', // red
+  '#DB2777', // pink
+  '#CA8A04', // yellow
+]
+
 export type ColumnMemberLoadsCardProps = {
   projectId: string
   initialMemberIds: number[]
   allMembers: MemberInfo[]
+  allMemberRows: MemberRow[]
+  allNodes: NodeRow[]
   designLabel: string
 }
 
@@ -39,6 +54,8 @@ export function ColumnMemberLoadsCard({
   projectId,
   initialMemberIds,
   allMembers,
+  allMemberRows,
+  allNodes,
   designLabel,
 }: ColumnMemberLoadsCardProps) {
   const [mode, setMode] = useState<'staad' | 'live' | 'manual'>(initialMemberIds.length > 0 ? 'staad' : 'manual')
@@ -71,6 +88,53 @@ export function ColumnMemberLoadsCard({
   const [searching, setSearching] = useState(false)
 
   const columnMembers = allMembers.filter(m => m.member_type === 'column' || m.member_type === 'COLUMN')
+
+  const [activeInstanceId, setActiveInstanceId] = useState<number | null>(
+    () => instances.length > 0 ? instances[0].id : null,
+  )
+
+  const columnMemberIds = useMemo(
+    () => new Set(columnMembers.map(m => m.member_id)),
+    [columnMembers],
+  )
+  const dimmedIds = useMemo(() => {
+    const s = new Set<number>()
+    for (const m of allMemberRows) {
+      if (!columnMemberIds.has(m.member_id)) s.add(m.member_id)
+    }
+    return s
+  }, [allMemberRows, columnMemberIds])
+
+  const memberColorMap = useMemo(() => {
+    const m = new Map<number, string>()
+    instances.forEach((inst, idx) => {
+      const c = INSTANCE_COLORS[idx % INSTANCE_COLORS.length]
+      for (const mid of inst.memberIds) {
+        m.set(mid, c)
+      }
+    })
+    return m
+  }, [instances])
+
+  const activeInstance = instances.find(i => i.id === activeInstanceId) ?? null
+  const activeSelectedSet = useMemo(
+    () => new Set(activeInstance?.memberIds ?? []),
+    [activeInstance],
+  )
+
+  const handleMemberToggle = (memberId: number) => {
+    if (!columnMemberIds.has(memberId)) return
+    if (!activeInstance) {
+      addInstance()
+      return
+    }
+    const ids = activeInstance.memberIds
+    if (ids.includes(memberId)) {
+      updateMemberIds(activeInstance.id, ids.filter(id => id !== memberId))
+    } else {
+      updateMemberIds(activeInstance.id, [...ids, memberId])
+    }
+  }
 
   useEffect(() => {
     fetch('/api/bridge/status')
@@ -149,14 +213,16 @@ export function ColumnMemberLoadsCard({
 
   const addInstance = () => {
     const n = instances.length + 1
+    const newId = instanceIdCounter++
     setInstances(prev => [...prev, {
-      id: instanceIdCounter++,
+      id: newId,
       label: `${designLabel}-${n}`,
       memberIds: [],
       height_mm: 0,
       forces: null,
       loading: false,
     }])
+    setActiveInstanceId(newId)
   }
 
   const removeInstance = (id: number) => {
@@ -319,6 +385,7 @@ export function ColumnMemberLoadsCard({
           <table className="t" style={{ fontSize: 11 }}>
             <thead>
               <tr>
+                <th style={{ width: 24 }}></th>
                 <th style={{ width: 100 }}>Instance</th>
                 <th>STAAD Members</th>
                 <th className="num" style={{ width: 70, textAlign: 'right' }}>H (mm)</th>
@@ -330,16 +397,49 @@ export function ColumnMemberLoadsCard({
               </tr>
             </thead>
             <tbody>
-              {instances.map(inst => (
-                <tr key={inst.id}>
-                  <td>
-                    <input className="input" value={inst.label} style={{ width: 80, height: 20, fontSize: 10.5 }}
-                      onChange={e => setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, label: e.target.value } : i))} />
+              {instances.map((inst, idx) => {
+                const instColor = INSTANCE_COLORS[idx % INSTANCE_COLORS.length]
+                const isActive = activeInstanceId === inst.id
+                return (
+                <tr key={inst.id}
+                  onClick={() => setActiveInstanceId(inst.id)}
+                  style={{
+                    cursor: 'pointer',
+                    background: isActive ? 'var(--color-sel-bg, #E8F0FA)' : undefined,
+                  }}>
+                  <td style={{ padding: '0 4px' }}>
+                    <span style={{
+                      display: 'inline-block', width: 12, height: 12, borderRadius: 2,
+                      background: instColor, border: isActive ? '2px solid var(--color-ink)' : '1px solid transparent',
+                    }} />
                   </td>
                   <td>
-                    <MemberPicker available={columnMembers} selected={inst.memberIds}
-                      onChange={ids => updateMemberIds(inst.id, ids)}
-                      projectId={projectId} bridgeOnline={bridgeOnline} />
+                    <input className="input" value={inst.label} style={{ width: 80, height: 20, fontSize: 10.5 }}
+                      onChange={e => setInstances(prev => prev.map(i => i.id === inst.id ? { ...i, label: e.target.value } : i))}
+                      onClick={e => e.stopPropagation()} />
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                      {inst.memberIds.length === 0 && (
+                        <span style={{ fontSize: 9.5, color: 'var(--color-ink-4)', fontStyle: 'italic' }}>
+                          {isActive ? 'click members in 3D below' : 'click row to activate'}
+                        </span>
+                      )}
+                      {inst.memberIds.map(mid => (
+                        <span key={mid} className="tag" style={{
+                          fontSize: 9, padding: '0 4px', display: 'inline-flex',
+                          alignItems: 'center', gap: 2,
+                          borderLeft: `3px solid ${instColor}`,
+                        }}>
+                          <span className="mono">{mid}</span>
+                          <button type="button"
+                            onClick={e => { e.stopPropagation(); updateMemberIds(inst.id, inst.memberIds.filter(x => x !== mid)) }}
+                            style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 10, padding: 0, lineHeight: 1 }}>
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="num" style={{ textAlign: 'right' }}>
                     <span className="mono">{inst.height_mm > 0 ? inst.height_mm.toFixed(0) : '—'}</span>
@@ -359,18 +459,18 @@ export function ColumnMemberLoadsCard({
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 2 }}>
-                      <button type="button" onClick={() => refreshInstance(inst)} title="Refresh"
+                      <button type="button" onClick={e => { e.stopPropagation(); refreshInstance(inst) }} title="Refresh"
                         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-ink-3)', fontSize: 11, padding: 2 }}>
                         <Icon name="sync" size={10} />
                       </button>
-                      <button type="button" onClick={() => removeInstance(inst.id)}
+                      <button type="button" onClick={e => { e.stopPropagation(); removeInstance(inst.id) }}
                         style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 13, padding: 2 }}>
                         ×
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
 
@@ -394,147 +494,39 @@ export function ColumnMemberLoadsCard({
               </div>
             )}
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
-function MemberPicker({ available, selected, onChange, projectId, bridgeOnline }: {
-  available: MemberInfo[]; selected: number[]; onChange: (ids: number[]) => void
-  projectId: string; bridgeOnline: boolean | null
-}) {
-  const [open, setOpen] = useState(false)
-  const [filter, setFilter] = useState('')
-  const [inputVal, setInputVal] = useState('')
-  const [fetching, setFetching] = useState(false)
-
-  const getHighlighted = async () => {
-    setFetching(true)
-    try {
-      const res = await fetch('/api/bridge/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'selected', project_id: projectId }),
-      })
-      const json = await res.json()
-      if (json.ok && json.members?.length > 0) {
-        const ids = json.members.map((m: MemberInfo) => m.member_id)
-        onChange([...new Set([...selected, ...ids])])
-      }
-    } catch { /* bridge offline */ }
-    setFetching(false)
-  }
-
-  const removeMember = (id: number) => onChange(selected.filter(x => x !== id))
-  const toggleMember = (id: number) => {
-    if (selected.includes(id)) onChange(selected.filter(x => x !== id))
-    else onChange([...selected, id])
-  }
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && inputVal.trim()) {
-      const ids = inputVal.split(/[,\s]+/).map(Number).filter(n => Number.isFinite(n) && n > 0)
-      onChange([...new Set([...selected, ...ids])])
-      setInputVal('')
-    }
-  }
-
-  const filtered = filter
-    ? available.filter(m => m.member_id.toString().includes(filter) || m.section_name.toLowerCase().includes(filter.toLowerCase()))
-    : available
-  const sections = [...new Set(filtered.map(m => m.section_name))]
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center', position: 'relative' }}>
-      {selected.map(id => {
-        const m = available.find(a => a.member_id === id)
-        return (
-          <span key={id} className="tag" style={{ fontSize: 9, padding: '0 4px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            <span className="mono">{id}</span>
-            {m && <span style={{ color: 'var(--color-ink-4)', fontSize: 8 }}>{m.section_name} · {m.length_mm}mm</span>}
-            <button type="button" onClick={() => removeMember(id)}
-              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-fail)', fontSize: 10, padding: 0, lineHeight: 1 }}>×</button>
-          </span>
-        )
-      })}
-      <button type="button" onClick={() => setOpen(!open)}
-        className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px' }}>
-        <Icon name="plus" size={8} /> Choose members
-      </button>
-      {bridgeOnline && (
-        <button type="button" onClick={getHighlighted} disabled={fetching}
-          className="btn sm" style={{ height: 18, fontSize: 9.5, padding: '0 6px', background: 'var(--color-sel-bg, #E8F0FA)', borderColor: 'var(--color-sel, #2563AB)', color: 'var(--color-sel, #2563AB)' }}>
-          {fetching ? '…' : <><Icon name="sync" size={8} /> Get highlighted</>}
-        </button>
-      )}
-      <input className="input" placeholder="or type IDs…" value={inputVal}
-        onChange={e => setInputVal(e.target.value)} onKeyDown={handleKeyDown}
-        style={{ width: 80, height: 18, fontSize: 10, padding: '0 4px' }} />
-
-      {open && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, zIndex: 20,
-          width: 420, maxHeight: 280, overflow: 'hidden',
-          background: 'var(--color-panel)', border: '1px solid var(--color-line)',
-          borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-          display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <Icon name="search" size={10} />
-            <input className="input" placeholder="Filter by ID or section…" value={filter}
-              onChange={e => setFilter(e.target.value)} autoFocus
-              style={{ flex: 1, height: 22, fontSize: 11 }} />
-            <span className="mono" style={{ fontSize: 9, color: 'var(--color-ink-4)' }}>{selected.length} sel</span>
-            <button type="button" onClick={() => setOpen(false)}
-              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--color-ink-3)', fontSize: 14 }}>×</button>
-          </div>
-          <div style={{ overflow: 'auto', flex: 1 }}>
-            {sections.length === 0 ? (
-              <div style={{ padding: 12, fontSize: 11, color: 'var(--color-ink-4)' }}>No members found</div>
-            ) : sections.map(sec => {
-              const membersInSec = filtered.filter(m => m.section_name === sec)
-              const allSelected = membersInSec.every(m => selected.includes(m.member_id))
-              const someSelected = membersInSec.some(m => selected.includes(m.member_id))
-              const toggleSection = () => {
-                const secIds = membersInSec.map(m => m.member_id)
-                if (allSelected) onChange(selected.filter(id => !secIds.includes(id)))
-                else onChange([...new Set([...selected, ...secIds])])
-              }
-              return (
-                <div key={sec}>
-                  <div onClick={toggleSection} style={{
-                    padding: '4px 8px', background: 'var(--color-bg)', borderBottom: '1px solid var(--color-line-2)',
-                    display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 10.5,
-                    fontWeight: 600, color: 'var(--color-ink-2)',
-                  }}>
-                    <input type="checkbox" checked={allSelected} readOnly style={{ pointerEvents: 'none' }}
-                      ref={el => { if (el) el.indeterminate = someSelected && !allSelected }} />
-                    <span>{sec}</span>
-                    <span className="mono" style={{ color: 'var(--color-ink-4)', fontWeight: 400, fontSize: 9 }}>{membersInSec.length} members</span>
-                  </div>
-                  {membersInSec.map(m => (
-                    <label key={m.member_id} style={{
-                      display: 'flex', alignItems: 'center', gap: 6, padding: '2px 8px 2px 20px',
-                      cursor: 'pointer', fontSize: 10.5,
-                      background: selected.includes(m.member_id) ? 'var(--color-sel-bg, #E8F0FA)' : 'transparent',
-                    }}>
-                      <input type="checkbox" checked={selected.includes(m.member_id)} onChange={() => toggleMember(m.member_id)} />
-                      <span className="mono" style={{ width: 36, fontWeight: 600 }}>{m.member_id}</span>
-                      <span style={{ color: 'var(--color-ink-3)', flex: 1 }}>{m.section_name}</span>
-                      <span className="mono" style={{ color: 'var(--color-ink-4)', fontSize: 9 }}>{m.length_mm} mm</span>
-                    </label>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
-          <div style={{
-            padding: '4px 8px', borderTop: '1px solid var(--color-line-2)',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: 'var(--color-bg)', fontSize: 10,
-          }}>
-            <span style={{ color: 'var(--color-ink-4)' }}>{filtered.length} members · {selected.length} selected</span>
-            <button type="button" className="btn sm" onClick={() => setOpen(false)}>Done</button>
+          {/* Shared 3D viewer — click to add/remove members from the active instance */}
+          <div style={{ borderTop: '1px solid var(--color-line-2)', position: 'relative' }}>
+            <div style={{
+              position: 'absolute', top: 4, left: 6, zIndex: 1,
+              fontSize: 10, color: 'var(--color-text2)',
+              background: 'var(--color-panel)', padding: '1px 6px',
+              border: '1px solid var(--color-border)', borderRadius: 2,
+              pointerEvents: 'none',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              {activeInstance ? (
+                <>
+                  <span style={{
+                    display: 'inline-block', width: 8, height: 8, borderRadius: 2,
+                    background: INSTANCE_COLORS[instances.indexOf(activeInstance) % INSTANCE_COLORS.length],
+                  }} />
+                  Click to add/remove from {activeInstance.label} · {activeInstance.memberIds.length} selected
+                </>
+              ) : (
+                'Select an instance row above, then click members here'
+              )}
+            </div>
+            <FrameViewer3D
+              projectId={projectId}
+              nodes={allNodes as NodeLite[]}
+              members={allMemberRows as MemberLite[]}
+              assignments={{}}
+              selectedMemberIds={activeSelectedSet}
+              memberColors={memberColorMap}
+              onMemberToggle={handleMemberToggle}
+              dimmedMemberIds={dimmedIds.size > 0 ? dimmedIds : undefined}
+            />
           </div>
         </div>
       )}

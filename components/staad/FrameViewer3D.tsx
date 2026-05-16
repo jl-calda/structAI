@@ -53,6 +53,8 @@ type FrameViewer3DProps = {
   onSnapshot?: (blob: Blob) => void
   /** Members rendered faded and unclickable (e.g. wrong type for current picker). */
   dimmedMemberIds?: ReadonlySet<number>
+  /** Per-member color overrides — used to paint different instances in distinct colors. */
+  memberColors?: ReadonlyMap<number, string>
 }
 
 /* ------------------------------------------------------------------ */
@@ -283,6 +285,7 @@ export function FrameViewer3D({
   onNodeSelect,
   onSnapshot,
   dimmedMemberIds,
+  memberColors,
 }: FrameViewer3DProps) {
   /* ----- state ----- */
   const [yaw, setYaw] = useState(DEFAULT_YAW)
@@ -572,18 +575,19 @@ export function FrameViewer3D({
               (selectedMemberId === m.member_id ||
                 (selectedMemberIds?.has(m.member_id) ?? false))
             const isHovered = !isDimmed && hoverMemberId === m.member_id
-            const color = memberColor(m.member_type)
+            const baseColor = memberColor(m.member_type)
+            const overrideColor = memberColors?.get(m.member_id)
+            const color = overrideColor ?? baseColor
             const clickable = !isDimmed && (
               !!onMemberToggle || !!onMemberSelect || !!assignment
             )
 
             const strokeW = m.member_type === 'column' ? 2.5 : 2
-            const activeW = isSelected ? 4 : isHovered ? 3.5 : strokeW
+            const hasColorOverride = !!overrideColor && !isSelected
+            const activeW = isSelected ? 4 : hasColorOverride ? 3.5 : isHovered ? 3.5 : strokeW
             const activeColor = isSelected
               ? 'var(--color-sel)'
-              : isHovered
-                ? color
-                : color
+              : color
 
             const lineEl = (
               <g
