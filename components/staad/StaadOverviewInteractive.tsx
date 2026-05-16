@@ -44,18 +44,6 @@ export function StaadOverviewInteractive({
     return members
   }, [members, selectedIds, showOnlySelected])
 
-  const filteredNodes = useMemo(() => {
-    if (showOnlySelected && selectedIds.size > 0) {
-      const nodeIds = new Set<number>()
-      for (const m of filteredMembers) {
-        nodeIds.add(m.start_node_id)
-        nodeIds.add(m.end_node_id)
-      }
-      return nodes.filter(n => nodeIds.has(n.node_id))
-    }
-    return nodes
-  }, [nodes, filteredMembers, showOnlySelected, selectedIds])
-
   return (
     <section className="grid grid-cols-[minmax(0,1fr)_320px] gap-3">
       <div className="card">
@@ -91,14 +79,14 @@ export function StaadOverviewInteractive({
               </>
             )}
             <span className="mono text-[11px]" style={{ color: 'var(--color-text2)' }}>
-              {filteredNodes.length} node{filteredNodes.length === 1 ? '' : 's'} ·{' '}
+              {nodes.length} node{nodes.length === 1 ? '' : 's'} ·{' '}
               {filteredMembers.length} member{filteredMembers.length === 1 ? '' : 's'}
             </span>
           </div>
         </div>
         <div className="cb" style={{ padding: 0 }}>
           <FrameViewer3D
-            nodes={filteredNodes as NodeLite[]}
+            nodes={nodes as NodeLite[]}
             members={filteredMembers as MemberLite[]}
             assignments={assignments}
             projectId={projectId}
