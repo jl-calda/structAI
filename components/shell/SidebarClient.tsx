@@ -32,17 +32,16 @@ const NAV_TOP = [
 const NAV_PROJECT = [
   { key: 'overview', label: 'STAAD', icon: 'overview' as IconName, sub: '' },
   { key: 'setup', label: 'Setup', icon: 'setup' as IconName, sub: '/setup' },
-  { key: 'members', label: 'Members', icon: 'members' as IconName, sub: '/members' },
   { key: 'basicloads', label: 'Basic Loads', icon: 'combos' as IconName, sub: '/basicloads' },
   { key: 'loadcombos', label: 'Load Combos', icon: 'combos' as IconName, sub: '/loadcombos' },
 ] as const
 
-const NAV_DESIGN = [
-  { key: 'beams', label: 'Beams', icon: 'beam' as IconName, sub: '/beams' },
-  { key: 'columns', label: 'Columns', icon: 'column' as IconName, sub: '/columns' },
-  { key: 'slabs', label: 'Slabs', icon: 'slab' as IconName, sub: '/slabs' },
-  { key: 'footings', label: 'Footings', icon: 'footing' as IconName, sub: '/footings' },
-] as const
+const NAV_DESIGN: { key: 'beams' | 'columns' | 'slabs' | 'footings'; label: string; icon: IconName; sub: string }[] = [
+  { key: 'beams', label: 'Beams', icon: 'beam', sub: '/beams' },
+  { key: 'columns', label: 'Columns', icon: 'column', sub: '/columns' },
+  { key: 'slabs', label: 'Slabs', icon: 'slab', sub: '/slabs' },
+  { key: 'footings', label: 'Footings', icon: 'footing', sub: '/footings' },
+]
 
 const NAV_BOTTOM = [
   { key: 'mto', label: 'Material Takeoff', icon: 'mto' as IconName, sub: '/mto' },
@@ -130,8 +129,6 @@ export function SidebarClient({
     )
   }
 
-  const total = tree.beams.length + tree.columns.length + tree.slabs.length + tree.footings.length
-
   if (collapsed) {
     return (
       <aside className="left collapsed">
@@ -142,7 +139,6 @@ export function SidebarClient({
           {projectBase && (
             <>
               <Link href={projectBase} className="iconbtn" title="Overview"><Icon name="overview" size={14} /></Link>
-              <Link href={`${projectBase}/members`} className="iconbtn" title="Members"><Icon name="members" size={14} /></Link>
               <Link href={`${projectBase}/beams`} className="iconbtn" title="Beams"><Icon name="beam" size={14} /></Link>
               <Link href={`${projectBase}/columns`} className="iconbtn" title="Columns"><Icon name="column" size={14} /></Link>
               <Link href={`${projectBase}/slabs`} className="iconbtn" title="Slabs"><Icon name="slab" size={14} /></Link>
@@ -219,7 +215,49 @@ export function SidebarClient({
             <div className="left-head" style={{ marginTop: 6 }}>Design</div>
             {NAV_DESIGN.map(n => {
               const href = projectBase + n.sub
-              return renderNavItem(href, n.label, n.icon, p => p.startsWith(href))
+              const isActive = pathname === href || pathname.startsWith(href + '/')
+              const items = tree[n.key] ?? []
+              const isOpen = groups[n.key] ?? false
+              return (
+                <div key={n.key}>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <Link href={href} className={'nav-item ' + (isActive ? 'active' : '')} style={{ flex: 1 }}>
+                      <Icon name={n.icon} size={13} />
+                      <span>{n.label}</span>
+                      {items.length > 0 && (
+                        <span className="mono" style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--color-ink-4)' }}>
+                          {items.length}
+                        </span>
+                      )}
+                    </Link>
+                    {items.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setGroups({ ...groups, [n.key]: !isOpen })}
+                        className="iconbtn"
+                        style={{ width: 20, height: 20, flexShrink: 0 }}
+                      >
+                        <Icon name="chev" size={9} className={'chev' + (isOpen ? '' : ' collapsed')} />
+                      </button>
+                    )}
+                  </div>
+                  {isOpen && items.length > 0 && (
+                    <div className="tree-children" style={{ paddingLeft: 12 }}>
+                      {items.map(it => (
+                        <Link
+                          key={it.id}
+                          href={it.href}
+                          className={'tree-item ' + (pathname === it.href ? 'active' : '')}
+                        >
+                          <span className={'dot ' + it.status} />
+                          <span className="id">{it.label}</span>
+                          <span className="meta">{it.meta}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
             })}
             {NAV_BOTTOM.map(n => {
               const href = projectBase + n.sub
@@ -228,47 +266,6 @@ export function SidebarClient({
           </>
         )}
       </div>
-
-      {/* Project Tree */}
-      {projectBase && total > 0 && (
-        <div className="left-section" style={{ flex: '1 1 auto', minHeight: 0 }}>
-          <div className="left-head" style={{ display: 'flex' }}>
-            <span>Project Tree</span>
-            <span className="mono" style={{ marginLeft: 'auto', textTransform: 'none', letterSpacing: 0, color: 'var(--color-ink-4)' }}>
-              {total} items
-            </span>
-          </div>
-          <div className="tree-scroll">
-            {[
-              { k: 'beams' as const, label: 'Beams', items: tree.beams },
-              { k: 'columns' as const, label: 'Columns', items: tree.columns },
-              { k: 'slabs' as const, label: 'Slabs', items: tree.slabs },
-              { k: 'footings' as const, label: 'Footings', items: tree.footings },
-            ].map(g => (
-              <div key={g.k} className={'tree-group ' + (groups[g.k] ? '' : 'collapsed')}>
-                <div className="tree-group-head" onClick={() => setGroups({ ...groups, [g.k]: !groups[g.k] })}>
-                  <Icon name="chev" size={10} className="chev" />
-                  <span>{g.label}</span>
-                  <span className="count">{g.items.length}</span>
-                </div>
-                <div className="tree-children">
-                  {g.items.map(it => (
-                    <Link
-                      key={it.id}
-                      href={it.href}
-                      className={'tree-item ' + (pathname === it.href ? 'active' : '')}
-                    >
-                      <span className={'dot ' + it.status} />
-                      <span className="id">{it.label}</span>
-                      <span className="meta">{it.meta}</span>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Engineer footer */}
       <div style={{ padding: '6px 12px', borderTop: '1px solid var(--color-line-2)', display: 'flex', alignItems: 'center', gap: 8, fontSize: 10.5, color: 'var(--color-ink-3)' }}>
