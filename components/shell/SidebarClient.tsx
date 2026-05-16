@@ -1,11 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useState, useTransition } from 'react'
 
+import { setProjectCodeStandardAction } from '@/app/actions/projects'
+import { requestResyncAction } from '@/app/actions/loads'
 import { Icon, type IconName } from '@/components/ui/Icon'
 import { useResizable } from '@/lib/hooks/useResizable'
+import type { CodeStandard } from '@/lib/supabase/types'
 
 export type TreeItem = {
   id: string
@@ -56,11 +59,13 @@ export function SidebarClient({
     id: string
     name: string
     codeLabel: string
+    codeStandard: CodeStandard
     syncStatus: 'green' | 'amber' | 'red'
   }
   tree: Tree
 }) {
   const pathname = usePathname()
+  const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const [w, startDrag] = useResizable(240, 180, 380, 'left', 'structai.sidebar.w')
   const [groups, setGroups] = useState<Record<string, boolean>>({
@@ -68,6 +73,47 @@ export function SidebarClient({
   })
 
   const projectBase = project ? `/projects/${project.id}` : null
+
+  const CODES: { value: CodeStandard; label: string }[] = [
+    { value: 'NSCP_2015', label: 'NSCP 2015' },
+    { value: 'ACI_318_19', label: 'ACI 318-19' },
+    { value: 'EC2_2004', label: 'EC2 2004' },
+    { value: 'AS_3600_2018', label: 'AS 3600-2018' },
+    { value: 'CSA_A23_3_19', label: 'CSA A23.3-19' },
+  ]
+  const [code, setCode] = useState<CodeStandard>(project?.codeStandard ?? 'NSCP_2015')
+  const [savingCode, startSaveCode] = useTransition()
+  const [syncing, startSync] = useTransition()
+  const [toast, setToast] = useState<string | null>(null)
+
+  const onCodeChange = (next: CodeStandard) => {
+    if (!project) return
+    const prev = code
+    setCode(next)
+    startSaveCode(async () => {
+      const result = await setProjectCodeStandardAction(project.id, next)
+      if (result.ok) {
+        router.refresh()
+      } else {
+        setCode(prev)
+        setToast(result.error)
+        setTimeout(() => setToast(null), 3000)
+      }
+    })
+  }
+
+  const onSync = () => {
+    if (!project) return
+    startSync(async () => {
+      const result = await requestResyncAction(project.id)
+      if (!result.ok) {
+        setToast('offline' in result && result.offline ? 'Bridge offline' : result.error)
+        setTimeout(() => setToast(null), 3000)
+      } else {
+        router.refresh()
+      }
+    })
+  }
 
   const renderNavItem = (
     href: string,
@@ -114,19 +160,42 @@ export function SidebarClient({
 
       {/* Project chip */}
       {project ? (
-        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Icon name="folder" size={14} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {project.name}
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="folder" size={14} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 600, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {project.name}
+              </div>
+              <div className="mono" style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>
+                {project.id.slice(0, 8)}
+              </div>
             </div>
-            <div className="mono" style={{ fontSize: 10, color: 'var(--color-ink-4)' }}>
-              {project.id.slice(0, 8)} · {project.codeLabel}
-            </div>
+            <button
+              type="button"
+              onClick={onSync}
+              disabled={syncing}
+              className={'pill ' + (project.syncStatus === 'green' ? '' : project.syncStatus === 'amber' ? 'warn' : 'fail')}
+              style={{ cursor: 'pointer', border: 0, background: 'none', padding: 0 }}
+              title="Click to resync STAAD bridge"
+            >
+              <span className="led" /> {syncing ? '…' : 'sync'}
+            </button>
           </div>
-          <span className={'pill ' + (project.syncStatus === 'green' ? '' : project.syncStatus === 'amber' ? 'warn' : 'fail')}>
-            <span className="led" /> sync
-          </span>
+          <select
+            className="select"
+            value={code}
+            onChange={e => onCodeChange(e.target.value as CodeStandard)}
+            disabled={savingCode}
+            style={{ width: '100%', height: 22, fontSize: 10.5 }}
+          >
+            {CODES.map(c => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+          {toast && (
+            <div style={{ fontSize: 10, color: 'var(--color-fail)', lineHeight: 1.3 }}>{toast}</div>
+          )}
         </div>
       ) : (
         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--color-line-2)', display: 'flex', alignItems: 'center', gap: 8 }}>

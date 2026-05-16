@@ -93,7 +93,11 @@ export async function Sidebar({
       engineerName={engineerName}
       project={
         project
-          ? { ...project, codeLabel: codeLabels[project.codeStandard] }
+          ? {
+              ...project,
+              codeLabel: codeLabels[project.codeStandard],
+              codeStandard: project.codeStandard,
+            }
           : undefined
       }
       tree={{ beams, columns, slabs, footings }}

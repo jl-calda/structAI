@@ -1,7 +1,7 @@
 /**
- * TopNav — 36px chrome strip with project picker, breadcrumb, search,
- * view-mode toggle, code standard select, and global actions (Sync/Run/
- * Save/Export). Most controls are interactive; route to TopNavClient.
+ * TopNav — minimal chrome strip: project picker + breadcrumb + search.
+ * All other actions (code standard, sync, run, export) live in the
+ * sidebar or on individual design pages.
  */
 import { listProjects } from '@/lib/data/projects'
 
